@@ -1,0 +1,24 @@
+.summaryIcon{
+  position: relative;
+  height: 37px;
+  width: 37px;
+  grid-column: 1/2;
+  left: 8px;
+  top: 8px;
+}
+
+#percentUpIcon{
+  grid-row: 2/3;
+}
+#relVolumeIcon{
+  grid-row: 3/4;
+}
+#curPriceIcon{
+  grid-row: 4/5;
+}
+#curVolumeIcon{
+  grid-row: 5/6;
+}
+#floatIcon{
+  grid-row: 6/7;
+}

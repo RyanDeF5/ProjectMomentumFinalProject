@@ -1,0 +1,201 @@
+#summarySection{
+  /* auto side margins center the section in every browser; justify-self alone only works in newer Chromium */
+  margin: 100px auto 0;
+  width: 1170px;
+  display: grid;
+  grid-template-columns: 400px 400px 375px;
+  grid-template-rows: 50px 600px;
+  gap: 15px;
+  justify-self: center;
+  align-self: center;
+  font-family: Rajdhani-Medium;  
+  color: var(--asphalt-black);   
+}
+
+.summaryPageTitle{
+  grid-row: 1/2;
+  grid-column: 1/4;
+}
+
+.animatedContainer.stockNameContainer{
+  align-self: start;
+  justify-self: start;
+  grid-row: 2/3;
+  grid-column: 1/2;
+  width: 400px;
+  height: 135px;
+  z-index: 5;
+}
+
+.animatedContainer.rankBoxContainer{
+  position: relative;
+  grid-column: 2/4;
+  grid-row: 2/3;
+  left: 70px;
+  bottom: 235px;
+}
+
+#rankBox{
+  display: grid;
+  grid-template-columns: 250px 60px;
+  grid-template-rows: 50px;
+  background-color: var(--asphalt-grey);
+  color: white;
+}
+
+#rankText{
+  display: flex;   
+  justify-content: right; 
+  position: relative;
+  grid-column: 1/2;
+  grid-row: 1/2;
+  font-family: Rajdhani-Semi-Bold;
+  font-size: 22px;
+  left: -21px;
+  
+} 
+#scoreBox{
+  display: flex;
+  align-items: center;     
+  justify-content: right; 
+  position: relative;
+  grid-column: 1/2;
+  grid-row: 1/2;
+  font-size: 30px;
+  top: 12px;
+  left: -16px;
+}
+
+#classBox{
+  display: flex;
+  align-items: center;     
+  justify-content: center; 
+  align-self: center;
+  justify-self: center;
+  grid-row: 1/2;
+  grid-column: 2/3;
+  width: 90%;
+  height: 90%;
+  left: 5%;
+  top: 5%;
+  background-color: white;
+  color: var(--asphalt-grey);
+  font-family: Rajdhani-Bold;
+  font-size: 45px;
+}
+
+#tickerContainer, #longNameContainer{
+  position: relative;
+  background-color: white;
+  width: 150px;
+  height: 70px;
+  text-align: center;
+  font-size: 60px;
+  font-family: Rajdhani-Bold;
+  z-index: 1;
+  top: 15px;
+  left: 25px;
+}
+
+#longNameContainer{
+  top: 22px;
+  font-size: 25px;
+  padding-left: 5px; padding-right: 5px;
+  width: fit-content;
+  height: fit-content;
+}
+
+#summaryBox{
+  display: grid;
+  grid-template-columns: 375px;
+  grid-template-rows: 100px 60px 60px 60px 60px 60px 60px; 
+  gap: 5px;
+  text-align: left;
+  background-color: #272d33cc;
+}
+
+.summaryBoxContainer{
+  grid-row: 2/3;
+  grid-column: 1/2;
+}
+
+.summaryItem{
+  position: relative;
+  left: 55px;
+  font-size: 25px;
+  width: 500px;
+  z-index: 2;
+  grid-column: 1/2;
+  color: white;
+  /* border-color: #1159d2;
+  border-style: solid;
+  border-width: 3px; */
+}
+
+#percentUpBox{
+  grid-row: 2/3;
+}
+#rvolBox{
+  grid-row: 3/4;
+}
+#priceBox{
+  grid-row: 4/5;
+}
+#curVolumeBox{
+  grid-row: 5/6;
+}
+#floatBox{
+  grid-row: 6/7;
+}
+
+.summaryNumber{
+  position: relative;
+  left: 140px;
+  font-size: 23px;
+  grid-column: 1/2;
+  color: white;
+  text-align: center;
+  font-family: Rajdhani-Semi-Bold;  
+}
+#percentUp{
+  grid-row: 2/3;
+}
+#rvol{
+  grid-row: 3/4;
+}
+#price{
+  grid-row: 4/5;
+}
+#currentVolume{
+  grid-row: 5/6;
+}
+#currentFloat{
+  grid-row: 6/7;
+}
+
+/* Loading Bar Code */
+
+.progressContainer{
+  position: relative;
+  width: 275px;
+  height: 5px;
+  overflow: hidden; /* Clips the filling to the rounded corners */
+}
+.progressContainer.summaryBar{
+  left: 55px;
+  top: 35px;
+  grid-column: 1/2;
+}
+.progressBar{
+  width: 0%; 
+  height: 100%;
+  background-color: rgb(52 236 250);
+  transition: width 1s ease-out; 
+}
+
+.no-transition {
+  transition: none !important;
+}
+
+#percetProgress{grid-row: 2/3;} #rvolProgress{grid-row: 3/4;} 
+#priceProgress{grid-row: 4/5;} #curVolumeProgress{grid-row: 5/6;} #curFloatProgress{grid-row: 6/7;}
