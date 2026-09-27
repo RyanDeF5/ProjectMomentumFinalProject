@@ -1,0 +1,92 @@
+/* Design tokens taken from the Asphalt 9 UI kit (primary/secondary colors, Rajdhani type) */
+:root {
+  --a9-dark: #1b212b;
+  --a9-pink: #ff0054;
+  --a9-lime: #c3fb12;
+  --a9-slate: #3f4b57;
+  --a9-navy: #13233c;
+  --a9-navy-deep: #0a1428;
+  --a9-cyan: #34ecfa;
+  --a9-white: #f4f6fa;
+  --a9-dim: #9aa8bf;
+  --a9-panel: rgba(7, 23, 52, 0.92);
+  --a9-panel-edge: rgba(90, 140, 220, 0.25);
+  --a9-menu: #041129;
+  --a9-black: #05070d;
+
+  --topbar-h: 56px;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+
+  color-scheme: dark;
+}
+
+@font-face {
+  font-family: "Rajdhani";
+  src: url("/fonts/Rajdhani-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Rajdhani";
+  src: url("/fonts/Rajdhani-Medium.ttf") format("truetype");
+  font-weight: 500;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Rajdhani";
+  src: url("/fonts/Rajdhani-SemiBold.ttf") format("truetype");
+  font-weight: 600;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Rajdhani";
+  src: url("/fonts/Rajdhani-Bold.ttf") format("truetype");
+  font-weight: 700;
+  font-display: swap;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  background: var(--a9-black);
+  color: var(--a9-white);
+  font-family: "Rajdhani", system-ui, sans-serif;
+  font-weight: 600;
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  overflow-x: hidden;
+}
+
+button,
+input {
+  font: inherit;
+  color: inherit;
+}
+
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
+
+.pink {
+  color: var(--a9-pink);
+}
+.lime {
+  color: var(--a9-lime);
+}
+
+:focus-visible {
+  outline: 2px solid var(--a9-cyan);
+  outline-offset: 2px;
+}

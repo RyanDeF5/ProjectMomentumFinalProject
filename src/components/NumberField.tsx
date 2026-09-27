@@ -3,7 +3,7 @@ import { expandSuffix } from "../lib/numbers";
 
 interface NumberFieldProps {
   id: string;
-  className: string;
+  className?: string;
   placeholder: string;
   value: string;
   onChange: (value: string) => void;
@@ -11,7 +11,7 @@ interface NumberFieldProps {
 }
 
 // Text input that expands K/M/B shorthand (e.g. 2.5M -> 2,500,000) and flashes green when it does.
-export function NumberField({ onChange, ...props }: NumberFieldProps) {
+export function NumberField({ onChange, className, ...props }: NumberFieldProps) {
   const inputRef = useRef<HTMLInputElement>(null);
 
   function flashIndicateField() {
@@ -20,7 +20,7 @@ export function NumberField({ onChange, ...props }: NumberFieldProps) {
     field.style.backgroundColor = "#a2ffa3ff";
     setTimeout(() => {
       field.style.transition = "background-color 0.5s ease-out";
-      field.style.backgroundColor = "white";
+      field.style.backgroundColor = "";
     }, 200);
     setTimeout(() => {
       field.style.transition = "background-color 0.0s ease-out";
@@ -37,5 +37,5 @@ export function NumberField({ onChange, ...props }: NumberFieldProps) {
     }
   }
 
-  return <input ref={inputRef} {...props} onChange={(e) => handleChange(e.target.value)} />;
+  return <input ref={inputRef} className={`a9-input ${className ?? ""}`} autoComplete="off" {...props} onChange={(e) => handleChange(e.target.value)} />;
 }

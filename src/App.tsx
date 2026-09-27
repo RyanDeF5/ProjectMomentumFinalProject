@@ -1,13 +1,24 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
-import { AnimationEngine, PAGE_SWITCH_DELAY } from "./animation/AnimationEngine";
-import { StartPage } from "./components/StartPage";
-import { SummaryPage } from "./components/SummaryPage";
+import { enterScreen, enterTopBar, exitScreen, exitTopBar } from "./animation/a9";
+import { sfx, type SfxName } from "./audio/sfx";
+import type { GeminiState } from "./components/GeminiPanel";
 import { TopBar } from "./components/TopBar";
-import type { GeminiState } from "./components/GeminiSummary";
 import { fetchStockData, generateAIResponse, generateExampleAIResponse } from "./lib/api";
 import { useClock } from "./lib/clock";
-import type { PageId, StockData } from "./lib/types";
+import { markTitleScreenSeen, shouldShowTitleScreen } from "./lib/settings";
+import type { StockData } from "./lib/types";
+import { LoadingPage } from "./pages/LoadingPage";
+import { SettingsPage } from "./pages/SettingsPage";
+import { Splash } from "./pages/Splash";
+import { StartPage } from "./pages/StartPage";
+import { SummaryPage } from "./pages/SummaryPage";
+import { Dialog } from "./ui/Dialog";
+
+type Screen = "start" | "loading" | "summary" | "settings";
+
+// Keep the loading screen up long enough to read, like the game's pre-race screen
+const MIN_LOADING_MS = 1400;
 
 const placeholderStock: StockData = {
   symbol: "STCK",
@@ -19,55 +30,80 @@ const placeholderStock: StockData = {
   float: 0,
 };
 
+// Decided once per page load (the restart flag is consumed on read)
+const showTitleScreenOnLoad = shouldShowTitleScreen();
+
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 export default function App() {
   const clock = useClock();
 
-  const [activePage, setActivePage] = useState<PageId>("startPage");
+  const [screen, setScreen] = useState<Screen>("start");
+  const [showSplash, setShowSplash] = useState(showTitleScreenOnLoad);
   const [buyButtonsEnabled, setBuyButtonsEnabled] = useState(true);
   const [dryRun, setDryRun] = useState(false);
   const [stock, setStock] = useState(placeholderStock);
-  const [barRun, setBarRun] = useState(0);
+  const [loadingSymbol, setLoadingSymbol] = useState("");
+  const [summaryRun, setSummaryRun] = useState(0);
   const [gemini, setGemini] = useState<GeminiState>({ status: "idle" });
+  const [error, setError] = useState<{ title: string; message: string; retry?: () => void } | null>(null);
 
-  const topBarRef = useRef<HTMLDivElement>(null);
-  const flashRef = useRef<HTMLDivElement>(null);
-  const pageRefs = {
-    startPage: useRef<HTMLElement>(null),
-    summaryPage: useRef<HTMLElement>(null),
+  const topBarRef = useRef<HTMLElement>(null);
+  const screenRefs = {
+    start: useRef<HTMLElement>(null),
+    loading: useRef<HTMLElement>(null),
+    summary: useRef<HTMLElement>(null),
+    settings: useRef<HTMLElement>(null),
   };
-  const engineRef = useRef<AnimationEngine | null>(null);
-  const activePageRef = useRef<PageId>("startPage");
-  const transitioningRef = useRef(false);
+  const screenRef = useRef<Screen>("start");
+  const navQueue = useRef<Promise<void>>(Promise.resolve());
+  const queuedTarget = useRef<Screen | null>(null);
   const geminiRequestRef = useRef(0);
 
-  useEffect(() => {
-    engineRef.current = new AnimationEngine(topBarRef.current!, flashRef.current!);
-  }, []);
+  useEffect(() => sfx.preload(), []);
 
-  function goToPage(targetPageId: PageId) {
-    const engine = engineRef.current;
-    const currentPage = pageRefs[activePageRef.current].current;
-    const targetPage = pageRefs[targetPageId].current;
-    if (!engine || !currentPage || !targetPage || transitioningRef.current) return;
+  // First screen builds in once the splash is gone (or straight away when it was already seen)
+  useLayoutEffect(() => {
+    if (showSplash) return;
+    if (topBarRef.current) void enterTopBar(topBarRef.current);
+    if (screenRefs.start.current) void enterScreen(screenRefs.start.current);
+    // Only on the splash closing; later screens are entered by navigate()
+  }, [showSplash]);
 
-    transitioningRef.current = true;
-    engine.hidePage(currentPage);
+  /** Asphalt-style screen change: wash out, collapse the top bar, cut, rebuild. Calls are queued. */
+  function navigate(target: Screen, sound?: SfxName): Promise<void> {
+    if (queuedTarget.current === target) return navQueue.current;
+    queuedTarget.current = target;
 
-    setTimeout(() => {
-      activePageRef.current = targetPageId;
-      flushSync(() => setActivePage(targetPageId));
-      engine.revealPage(targetPage);
-      transitioningRef.current = false;
-    }, PAGE_SWITCH_DELAY);
+    navQueue.current = navQueue.current.then(async () => {
+      const from = screenRef.current;
+      if (from === target) {
+        queuedTarget.current = null;
+        return;
+      }
+      if (sound) sfx.play(sound);
+
+      const bar = topBarRef.current;
+      const fromEl = screenRefs[from].current;
+      await Promise.all([fromEl && exitScreen(fromEl), bar && from !== "loading" && exitTopBar(bar)]);
+
+      screenRef.current = target;
+      flushSync(() => setScreen(target));
+      window.scrollTo(0, 0);
+
+      if (bar && target !== "loading") void enterTopBar(bar);
+      const toEl = screenRefs[target].current;
+      if (queuedTarget.current === target) queuedTarget.current = null;
+      if (toEl) await enterScreen(toEl);
+    });
+    return navQueue.current;
   }
 
   async function startGemini(stockData: StockData) {
     const requestId = ++geminiRequestRef.current;
     setGemini({ status: "working" });
     try {
-      const response = dryRun
-        ? await generateExampleAIResponse(stockData)
-        : await generateAIResponse(stockData);
+      const response = dryRun ? await generateExampleAIResponse(stockData) : await generateAIResponse(stockData);
       if (requestId === geminiRequestRef.current) setGemini({ status: "done", response });
     } catch (err) {
       console.error("Gemini request failed:", err);
@@ -75,31 +111,40 @@ export default function App() {
     }
   }
 
-  function showSummary(stockData: StockData) {
+  function showSummary(stockData: StockData, sound?: SfxName) {
     setStock(stockData);
-    setBarRun((run) => run + 1);
-    startGemini(stockData);
-    goToPage("summaryPage");
+    setSummaryRun((run) => run + 1);
+    void startGemini(stockData);
+    return navigate("summary", sound);
   }
 
   async function superCalculate(symbol: string, volumeFromField: number) {
-    if (symbol === "") {
-      alert("Please enter a Stock Ticker/Symbol");
-      return;
-    }
-
     setBuyButtonsEnabled(false);
+    setLoadingSymbol(symbol.toUpperCase());
+    const stopRace = sfx.play("race");
+    const toLoading = navigate("loading");
+    const minimum = wait(MIN_LOADING_MS);
+
     let data;
     try {
       data = await fetchStockData(symbol, clock.marketState);
+      await Promise.all([toLoading, minimum]);
     } catch (err) {
       console.error("Failed to fetch stock data:", err);
-      alert(`Something went wrong with fetching the stock data \n Error: ${err}`);
+      await toLoading;
+      stopRace();
+      await navigate("start", "switch");
       setBuyButtonsEnabled(true);
+      const code = err instanceof Error ? (err.message.match(/\d{3}/)?.[0] ?? "0") : "0";
+      setError({
+        title: "CONNECTION ERROR",
+        message: `PLEASE CHECK THE TICKER AND MAKE SURE YOU ARE CONNECTED TO A STABLE NETWORK, OR TRY AGAIN LATER.\nWE COULD NOT LOAD MARKET DATA FOR ${symbol.toUpperCase()} (ERROR: ${code}).`,
+        retry: () => void superCalculate(symbol, volumeFromField),
+      });
       return;
     }
 
-    showSummary({
+    void showSummary({
       symbol: data.symbol ?? symbol.toUpperCase(),
       fullName: data.fullName,
       currentPrice: data.currentPrice,
@@ -111,41 +156,54 @@ export default function App() {
   }
 
   function goBack() {
-    goToPage("startPage");
+    void navigate("start", "switch");
     setTimeout(() => setBuyButtonsEnabled(true), 1000);
   }
 
-  // The original index.html had a stray closing tag that left the first footer and the summary page
-  // outside #appContainer; the summary layout was tuned for that, so this tree reproduces it.
   return (
-    <>
-      <div id="appContainer">
-        <main>
-          <TopBar clock={clock} containerRef={topBarRef} flashRef={flashRef} />
-          <StartPage
-            pageRef={pageRefs.startPage}
-            active={activePage === "startPage"}
-            clock={clock}
-            buyButtonsEnabled={buyButtonsEnabled}
-            dryRun={dryRun}
-            onSuperSubmit={superCalculate}
-            onManualSubmit={showSummary}
-            onSwitchPage={() => goToPage("summaryPage")}
-            onToggleDryRun={() => setDryRun((value) => !value)}
-          />
-        </main>
-      </div>
-      <footer>
-        <p>&copy; 2026 My Website Project</p>
-      </footer>
-      <SummaryPage
-        pageRef={pageRefs.summaryPage}
-        active={activePage === "summaryPage"}
-        stock={stock}
-        barRun={barRun}
-        gemini={gemini}
-        onBack={goBack}
+    <div className="app">
+      <TopBar
+        barRef={topBarRef}
+        clock={clock}
+        hidden={screen === "loading" || showSplash}
+        onBack={screen === "start" ? undefined : goBack}
+        onHome={screen === "start" ? undefined : goBack}
+        onSettings={screen === "start" ? () => void navigate("settings", "switch") : undefined}
       />
-    </>
+
+      <main className="app__screens">
+        <StartPage
+          screenRef={screenRefs.start}
+          active={screen === "start" && !showSplash}
+          clock={clock}
+          buyButtonsEnabled={buyButtonsEnabled}
+          dryRun={dryRun}
+          onSuperSubmit={superCalculate}
+          onManualSubmit={(stockData) => void showSummary(stockData, "switch")}
+          onSwitchPage={() => void navigate("summary", "switch")}
+          onDryRunChange={setDryRun}
+          lastScan={summaryRun > 0 ? { stock, gemini } : null}
+          onOpenLastScan={() => void navigate("summary", "switch")}
+        />
+        <LoadingPage screenRef={screenRefs.loading} active={screen === "loading"} symbol={loadingSymbol} marketState={clock.marketState} />
+        <SummaryPage screenRef={screenRefs.summary} active={screen === "summary"} stock={stock} summaryRun={summaryRun} gemini={gemini} onBack={goBack} />
+        <SettingsPage screenRef={screenRefs.settings} active={screen === "settings"} dryRun={dryRun} onDryRunChange={setDryRun} />
+      </main>
+
+      {error && (
+        <Dialog title={error.title} onClose={() => setError(null)} action={error.retry && { label: "RETRY", onClick: error.retry }}>
+          <p>{error.message}</p>
+        </Dialog>
+      )}
+
+      {showSplash && (
+        <Splash
+          onDone={() => {
+            markTitleScreenSeen();
+            setShowSplash(false);
+          }}
+        />
+      )}
+    </div>
   );
 }

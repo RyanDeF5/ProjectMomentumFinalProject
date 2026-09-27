@@ -1,0 +1,107 @@
+/* Resting state of the elements the animation engine (animation/a9.ts) drives.
+   Everything here is the "finished" look; the engine animates from hidden into it. */
+
+/* Text revealed behind a moving pink block */
+.a9-text {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+}
+.a9-text__content {
+  display: inline-block;
+}
+.a9-text__bar {
+  position: absolute;
+  inset: -0.06em -0.12em;
+  background: var(--a9-pink);
+  transform: scaleX(0);
+  pointer-events: none;
+}
+
+/* White (or pink) block that panels appear as before washing into their content */
+.a9-wash {
+  position: absolute;
+  inset: 0;
+  background: #fff;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 5;
+}
+.a9-wash--pink {
+  background: var(--a9-pink);
+}
+.a9-wash--lime {
+  background: var(--a9-lime);
+}
+
+[data-a9="panel"],
+[data-a9="slide"],
+[data-a9="pop"] {
+  position: relative;
+}
+
+/* Top bar flash (the original site's flashBox) */
+.a9-flash {
+  position: absolute;
+  inset: 0;
+  background: #fff;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 20;
+}
+
+/* Loading indicator from the game: black diamond with a pink comet running its inner outline */
+.a9-diamond {
+  position: relative;
+  display: inline-block;
+  width: var(--size, 34px);
+  height: var(--size, 34px);
+  flex: none;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.6));
+}
+.a9-diamond svg {
+  display: block;
+  overflow: visible;
+}
+.a9-diamond__comet {
+  animation: a9-comet 1.6s linear infinite;
+}
+@keyframes a9-comet {
+  from {
+    stroke-dashoffset: 0;
+  }
+  to {
+    stroke-dashoffset: -100;
+  }
+}
+
+/* Shimmering placeholder lines while Gemini writes */
+.a9-shimmer {
+  height: 14px;
+  margin-bottom: 10px;
+  overflow: hidden;
+  background: rgba(52, 236, 250, 0.08);
+  position: relative;
+}
+.a9-shimmer--short {
+  width: 60%;
+}
+.a9-shimmer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: 60%;
+  background: linear-gradient(90deg, transparent, rgba(52, 236, 250, 0.45), transparent);
+  animation: a9-shimmer 1.4s linear infinite;
+}
+@keyframes a9-shimmer {
+  from { transform: translateX(-120%); }
+  to { transform: translateX(220%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .a9-diamond__comet,
+  .a9-shimmer::after {
+    animation-duration: 4s;
+  }
+}
