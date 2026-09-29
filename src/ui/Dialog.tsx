@@ -10,6 +10,8 @@ interface DialogProps {
   children: ReactNode;
   /** White action button in the body, e.g. RETRY. Called after the dialog closes. */
   action?: { label: string; onClick: () => void };
+  /** warning: blue body with centered text (CONNECTION ERROR). info: navy body for details. */
+  variant?: "warning" | "info";
   onClose: () => void;
 }
 
@@ -17,7 +19,7 @@ interface DialogProps {
  * Warning dialog in the game's style (CUSTOMER CARE / CONNECTION ERROR): dark header with a white
  * top rule, pink close tab, blue body with centered text and a white button.
  */
-export function Dialog({ title, children, action, onClose }: DialogProps) {
+export function Dialog({ title, children, action, variant = "warning", onClose }: DialogProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const closingRef = useRef(false);
 
@@ -45,7 +47,13 @@ export function Dialog({ title, children, action, onClose }: DialogProps) {
   });
 
   return (
-    <div className="a9-dialog" ref={rootRef} role="alertdialog" aria-modal="true" aria-labelledby="a9-dialog-title">
+    <div
+      className={`a9-dialog a9-dialog--${variant}`}
+      ref={rootRef}
+      role={variant === "warning" ? "alertdialog" : "dialog"}
+      aria-modal="true"
+      aria-labelledby="a9-dialog-title"
+    >
       <div className="a9-dialog__backdrop" data-a9-bg onClick={() => void close()} />
       <Reveal kind="panel" className="a9-dialog__panel">
         <div className="a9-dialog__head">

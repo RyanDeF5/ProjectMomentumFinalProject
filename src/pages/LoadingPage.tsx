@@ -1,15 +1,59 @@
-import type { Ref } from "react";
-import type { MarketState } from "../lib/types";
+import type { ReactNode, Ref } from "react";
+import { SourceCarousel, type Source } from "../components/SourceCarousel";
+import type { MarketState, NewsItem } from "../lib/types";
 import { Chip } from "../ui/Chip";
 import { Diamond } from "../ui/Diamond";
 import { Reveal } from "../ui/Reveal";
 import { RevealText } from "../ui/RevealText";
+
+export type StepState = "pending" | "active" | "done" | "failed" | "skipped";
+export interface LoadingSteps {
+  quote: StepState;
+  news: StepState;
+  legend: StepState;
+}
 
 interface LoadingPageProps {
   screenRef: Ref<HTMLElement>;
   active: boolean;
   symbol: string;
   marketState: MarketState;
+  steps: LoadingSteps;
+  news: NewsItem[];
+}
+
+// Shown while the news search runs, before there are stories to read
+const SEARCH_SOURCES: Source[] = [
+  { name: "YAHOO FINANCE", domain: "finance.yahoo.com" },
+  { name: "GOOGLE NEWS", domain: "news.google.com" },
+];
+
+const StepMark = ({ state }: { state: StepState }) => {
+  if (state === "active") return <span className="step__pulse" />;
+  if (state === "failed")
+    return (
+      <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden fill="none" stroke="currentColor" strokeWidth="3.2">
+        <path d="m6 6 12 12M18 6 6 18" />
+      </svg>
+    );
+  if (state === "done" || state === "skipped")
+    return (
+      <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden fill="none" stroke="currentColor" strokeWidth="3.2">
+        <path d="m4 12.5 5 5L20 6.5" />
+      </svg>
+    );
+  return <span className="step__dot" />;
+};
+
+function Step({ state, children }: { state: StepState; children: ReactNode }) {
+  return (
+    <li className={`step is-${state}`}>
+      <span className="step__mark">
+        <StepMark state={state} />
+      </span>
+      <span>{children}</span>
+    </li>
+  );
 }
 
 // Tile mosaic on the right, echoing the photo grid of the game's pre-race loading screen
@@ -26,8 +70,11 @@ const MOSAIC = [
   { col: 3, row: 3, tone: "letter" },
 ] as const;
 
-/** Shown while quote data loads, like the loading screen before a race. */
-export function LoadingPage({ screenRef, active, symbol, marketState }: LoadingPageProps) {
+/** Shown while a scan runs (quote, news, Legend), like the loading screen before a race. */
+export function LoadingPage({ screenRef, active, symbol, marketState, steps, news }: LoadingPageProps) {
+  const newsCount = news.length;
+  const reading = news.map((item) => ({ name: item.publisher.toUpperCase(), domain: item.domain }));
+  const searching = steps.news === "active";
   const letters = symbol.slice(0, 2).split("");
 
   return (
@@ -62,8 +109,33 @@ export function LoadingPage({ screenRef, active, symbol, marketState }: LoadingP
           </Reveal>
 
           <Reveal kind="fade" className="loading__steps">
-            <p>FETCHING LIVE QUOTE</p>
-            <p className="lime">THEN GEMINI RANKS THE SETUP</p>
+            <ul aria-live="polite">
+              <Step state={steps.quote}>{steps.quote === "skipped" ? "USING MANUAL ENTRY" : "FETCHING LIVE QUOTE"}</Step>
+              <Step state={steps.news}>
+                {steps.news === "failed"
+                  ? "NEWS SEARCH UNAVAILABLE"
+                  : steps.news === "done"
+                    ? `${newsCount} RECENT ${newsCount === 1 ? "STORY" : "STORIES"} FOUND`
+                    : "SEARCHING RECENT NEWS"}
+              </Step>
+              <Step state={steps.legend}>
+                {steps.legend === "failed" ? (
+                  "LEGEND IS OFFLINE"
+                ) : (
+                  <>
+                    <span className="gold">LEGEND</span> {steps.legend === "done" ? "HAS RANKED THE SETUP" : "IS RANKING THE SETUP"}
+                  </>
+                )}
+              </Step>
+            </ul>
+            {(searching || newsCount > 0) && (
+              <SourceCarousel
+                sources={searching ? SEARCH_SOURCES : reading}
+                spinning={searching || steps.legend === "active"}
+                verb={searching ? "SEARCHING" : "LEGEND IS READING"}
+                doneLabel={`${new Set(reading.map((r) => r.domain || r.name)).size} SOURCES READ`}
+              />
+            )}
           </Reveal>
         </div>
 
@@ -83,11 +155,11 @@ export function LoadingPage({ screenRef, active, symbol, marketState }: LoadingP
 
         <Reveal kind="fade" className="loading__indicator">
           <span>LOADING</span>
-          <Diamond size={16} label="Loading" />
         </Reveal>
 
-        <Reveal kind="fade" className="loading__corner" aria-hidden>
-          <Diamond size={46} />
+        {/* The one loading indicator on this screen */}
+        <Reveal kind="fade" className="loading__corner">
+          <Diamond size={46} label="Loading" />
         </Reveal>
       </div>
     </section>

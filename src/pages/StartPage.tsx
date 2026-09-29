@@ -2,7 +2,7 @@ import { useRef, useState, type Ref } from "react";
 import { shake } from "../animation/a9";
 import { sfx } from "../audio/sfx";
 import { Field } from "../components/Field";
-import type { GeminiState } from "../components/GeminiPanel";
+import type { LegendState } from "../components/LegendPanel";
 import { LastScanCard } from "../components/LastScanCard";
 import { ModeBar } from "../components/ModeBar";
 import { NumberField } from "../components/NumberField";
@@ -29,7 +29,7 @@ interface StartPageProps {
   onSwitchPage: () => void;
   onDryRunChange: (dryRun: boolean) => void;
   /** The most recent scan, shown as a card in the top-left corner */
-  lastScan: { stock: StockData; gemini: GeminiState } | null;
+  lastScan: { stock: StockData; legend: LegendState } | null;
   onOpenLastScan: () => void;
 }
 
@@ -157,7 +157,7 @@ export function StartPage({
             </div>
             {lastScan && (
               <Reveal kind="slide" wash="none">
-                <LastScanCard stock={lastScan.stock} gemini={lastScan.gemini} onOpen={onOpenLastScan} />
+                <LastScanCard stock={lastScan.stock} legend={lastScan.legend} onOpen={onOpenLastScan} />
               </Reveal>
             )}
           </div>
@@ -259,9 +259,9 @@ export function StartPage({
               {devOpen && (
                 <div id="dev-options" className="dev__body">
                   <div className="dev__setting">
-                    <span className="dev__setting-label">AI DRY RUN</span>
+                    <span className="dev__setting-label">LEGEND DRY RUN</span>
                     <Segmented
-                      label="AI dry run"
+                      label="Legend dry run"
                       value={dryRun ? "on" : "off"}
                       onChange={(v) => onDryRunChange(v === "on")}
                       options={[

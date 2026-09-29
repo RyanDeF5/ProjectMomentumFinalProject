@@ -1,6 +1,9 @@
 # Dependencies
 node_modules/
 
+# Legend token usage (local data)
+server/data/
+
 # Build output
 dist/
 *.tsbuildinfo

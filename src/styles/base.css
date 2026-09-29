@@ -14,6 +14,12 @@
   --a9-menu: #041129;
   --a9-black: #05070d;
 
+  /* Legend (styled after the game's Legend Pass) */
+  --legend-gold: #fbc101;
+  --legend-gold-light: #ffe27a;
+  --legend-orange: #ef7d10;
+  --legend-charcoal: #1e211d;
+
   --topbar-h: 56px;
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
 
@@ -66,6 +72,22 @@ body {
   overflow-x: hidden;
 }
 
+/* The game's pink arrow cursor (tip at 5,4), used everywhere including buttons and links */
+html {
+  cursor: -webkit-image-set(url("/cursors/pointer.png") 1x, url("/cursors/pointer@2x.png") 2x) 5 4, auto;
+  cursor: image-set(url("/cursors/pointer.png") 1x, url("/cursors/pointer@2x.png") 2x) 5 4, auto;
+}
+button,
+a,
+label,
+[role="button"],
+input[type="range"] {
+  cursor: inherit;
+}
+input:not([type="range"]) {
+  cursor: text;
+}
+
 button,
 input {
   font: inherit;
@@ -84,6 +106,9 @@ p {
 }
 .lime {
   color: var(--a9-lime);
+}
+.gold {
+  color: var(--legend-gold);
 }
 
 :focus-visible {

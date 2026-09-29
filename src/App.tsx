@@ -2,23 +2,27 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { enterScreen, enterTopBar, exitScreen, exitTopBar } from "./animation/a9";
 import { sfx, type SfxName } from "./audio/sfx";
-import type { GeminiState } from "./components/GeminiPanel";
+import type { LegendState } from "./components/LegendPanel";
 import { TopBar } from "./components/TopBar";
-import { fetchStockData, generateAIResponse, generateExampleAIResponse } from "./lib/api";
+import { analyzeWithLegend, exampleLegendAnalysis, fetchNews, fetchStockData, fetchTokenUsage } from "./lib/api";
 import { useClock } from "./lib/clock";
 import { markTitleScreenSeen, shouldShowTitleScreen } from "./lib/settings";
-import type { StockData } from "./lib/types";
-import { LoadingPage } from "./pages/LoadingPage";
+import type { NewsItem, StockData, TokenUsage } from "./lib/types";
+import { LoadingPage, type LoadingSteps } from "./pages/LoadingPage";
+import type { NewsState } from "./components/NewsStrip";
 import { SettingsPage } from "./pages/SettingsPage";
+import { TokensPage } from "./pages/TokensPage";
 import { Splash } from "./pages/Splash";
 import { StartPage } from "./pages/StartPage";
 import { SummaryPage } from "./pages/SummaryPage";
 import { Dialog } from "./ui/Dialog";
 
-type Screen = "start" | "loading" | "summary" | "settings";
+type Screen = "start" | "loading" | "summary" | "settings" | "tokens";
 
 // Keep the loading screen up long enough to read, like the game's pre-race screen
 const MIN_LOADING_MS = 1400;
+const STEP_DONE_PAUSE_MS = 450;
+const USAGE_REFRESH_MS = 60_000;
 
 const placeholderStock: StockData = {
   symbol: "STCK",
@@ -44,8 +48,12 @@ export default function App() {
   const [dryRun, setDryRun] = useState(false);
   const [stock, setStock] = useState(placeholderStock);
   const [loadingSymbol, setLoadingSymbol] = useState("");
+  const [steps, setSteps] = useState<LoadingSteps>({ quote: "pending", news: "pending", legend: "pending" });
+  const [news, setNews] = useState<NewsState>({ status: "idle", items: [] });
   const [summaryRun, setSummaryRun] = useState(0);
-  const [gemini, setGemini] = useState<GeminiState>({ status: "idle" });
+  const [legend, setLegend] = useState<LegendState>({ status: "idle" });
+  const [usage, setUsage] = useState<TokenUsage | null>(null);
+  const [usageError, setUsageError] = useState(false);
   const [error, setError] = useState<{ title: string; message: string; retry?: () => void } | null>(null);
 
   const topBarRef = useRef<HTMLElement>(null);
@@ -54,13 +62,35 @@ export default function App() {
     loading: useRef<HTMLElement>(null),
     summary: useRef<HTMLElement>(null),
     settings: useRef<HTMLElement>(null),
+    tokens: useRef<HTMLElement>(null),
   };
+  // Where Settings/Tokens were opened from, so Back returns there
+  const returnTo = useRef<Screen>("start");
   const screenRef = useRef<Screen>("start");
   const navQueue = useRef<Promise<void>>(Promise.resolve());
   const queuedTarget = useRef<Screen | null>(null);
-  const geminiRequestRef = useRef(0);
+  const legendRequestRef = useRef(0);
 
   useEffect(() => sfx.preload(), []);
+
+  function refreshUsage() {
+    fetchTokenUsage()
+      .then((next) => {
+        setUsage(next);
+        setUsageError(false);
+      })
+      .catch((err) => {
+        console.error("Token usage unavailable:", err);
+        setUsageError(true);
+      });
+  }
+
+  // Token counter: load now, then keep it fresh (the day can roll over while the app is open)
+  useEffect(() => {
+    refreshUsage();
+    const timer = setInterval(refreshUsage, USAGE_REFRESH_MS);
+    return () => clearInterval(timer);
+  }, []);
 
   // First screen builds in once the splash is gone (or straight away when it was already seen)
   useLayoutEffect(() => {
@@ -99,36 +129,41 @@ export default function App() {
     return navQueue.current;
   }
 
-  async function startGemini(stockData: StockData) {
-    const requestId = ++geminiRequestRef.current;
-    setGemini({ status: "working" });
+  /** Run Legend on a stock. Resolves to whether it produced an analysis. */
+  async function runLegend(stockData: StockData, stories: NewsItem[]): Promise<boolean> {
+    const requestId = ++legendRequestRef.current;
+    setLegend({ status: "working" });
     try {
-      const response = dryRun ? await generateExampleAIResponse(stockData) : await generateAIResponse(stockData);
-      if (requestId === geminiRequestRef.current) setGemini({ status: "done", response });
+      const response = dryRun
+        ? await exampleLegendAnalysis(stockData, clock.marketState, stories)
+        : await analyzeWithLegend(stockData, clock.marketState, stories);
+      if (requestId === legendRequestRef.current) setLegend({ status: "done", response });
+      return true;
     } catch (err) {
-      console.error("Gemini request failed:", err);
-      if (requestId === geminiRequestRef.current) setGemini({ status: "error" });
+      console.error("Legend request failed:", err);
+      if (requestId === legendRequestRef.current) setLegend({ status: "error" });
+      return false;
     }
   }
 
-  function showSummary(stockData: StockData, sound?: SfxName) {
-    setStock(stockData);
-    setSummaryRun((run) => run + 1);
-    void startGemini(stockData);
-    return navigate("summary", sound);
-  }
-
-  async function superCalculate(symbol: string, volumeFromField: number) {
+  /**
+   * Scan flow: the loading screen covers the quote lookup, the news search and Legend's analysis
+   * (which reads that news), then the summary
+   * plays its reveal with the final score and readout. Manual (dev) entries pass the stock directly.
+   */
+  async function scan(symbol: string, load: (() => Promise<StockData>) | StockData) {
     setBuyButtonsEnabled(false);
     setLoadingSymbol(symbol.toUpperCase());
+    const manual = typeof load !== "function";
+    const quoteDone = manual ? "skipped" : "done";
+    setSteps({ quote: manual ? "skipped" : "active", news: "pending", legend: "pending" });
     const stopRace = sfx.play("race");
     const toLoading = navigate("loading");
     const minimum = wait(MIN_LOADING_MS);
 
-    let data;
+    let stockData: StockData;
     try {
-      data = await fetchStockData(symbol, clock.marketState);
-      await Promise.all([toLoading, minimum]);
+      stockData = typeof load === "function" ? await load() : load;
     } catch (err) {
       console.error("Failed to fetch stock data:", err);
       await toLoading;
@@ -139,25 +174,66 @@ export default function App() {
       setError({
         title: "CONNECTION ERROR",
         message: `PLEASE CHECK THE TICKER AND MAKE SURE YOU ARE CONNECTED TO A STABLE NETWORK, OR TRY AGAIN LATER.\nWE COULD NOT LOAD MARKET DATA FOR ${symbol.toUpperCase()} (ERROR: ${code}).`,
-        retry: () => void superCalculate(symbol, volumeFromField),
+        retry: () => void scan(symbol, load),
       });
       return;
     }
 
-    void showSummary({
-      symbol: data.symbol ?? symbol.toUpperCase(),
-      fullName: data.fullName,
-      currentPrice: data.currentPrice,
-      lastClose: data.lastClose,
-      volume: clock.marketState === "PRE-MARKET" ? volumeFromField : data.currentVolume,
-      averageVolume: data.averageVolume,
-      float: data.float,
+    // Retrieval: recent news for Legend to read (and for the summary's news strip)
+    setSteps({ quote: quoteDone, news: "active", legend: "pending" });
+    let stories: NewsItem[] = [];
+    let newsOk = true;
+    try {
+      stories = (await fetchNews(stockData.symbol, stockData.fullName)).items;
+    } catch (err) {
+      console.error("News search failed:", err);
+      newsOk = false;
+    }
+    setNews({ status: newsOk ? "done" : "error", items: stories });
+
+    setSteps({ quote: quoteDone, news: newsOk ? "done" : "failed", legend: "active" });
+    const analyzed = await runLegend(stockData, stories);
+    setSteps({ quote: quoteDone, news: newsOk ? "done" : "failed", legend: analyzed ? "done" : "failed" });
+
+    // Let the completed steps register before the summary takes over
+    await Promise.all([toLoading, minimum, wait(STEP_DONE_PAUSE_MS)]);
+    setStock(stockData);
+    setSummaryRun((run) => run + 1);
+    await navigate("summary");
+    // Pick up the tokens this scan used now that the top bar is back, so the counter rolls up in view
+    if (analyzed) refreshUsage();
+  }
+
+  function superCalculate(symbol: string, volumeFromField: number) {
+    void scan(symbol, async () => {
+      const data = await fetchStockData(symbol, clock.marketState);
+      return {
+        symbol: data.symbol ?? symbol.toUpperCase(),
+        fullName: data.fullName,
+        currentPrice: data.currentPrice,
+        lastClose: data.lastClose,
+        volume: clock.marketState === "PRE-MARKET" ? volumeFromField : data.currentVolume,
+        averageVolume: data.averageVolume,
+        float: data.float,
+      };
     });
   }
 
   function goBack() {
+    const target = screen === "settings" || screen === "tokens" ? returnTo.current : "start";
+    void navigate(target, "switch");
+    if (target === "start") setTimeout(() => setBuyButtonsEnabled(true), 1000);
+  }
+
+  function goHome() {
     void navigate("start", "switch");
     setTimeout(() => setBuyButtonsEnabled(true), 1000);
+  }
+
+  function openOverlayScreen(target: "settings" | "tokens") {
+    if (screen !== "settings" && screen !== "tokens") returnTo.current = screen;
+    if (target === "tokens") refreshUsage();
+    void navigate(target, "switch");
   }
 
   return (
@@ -167,8 +243,10 @@ export default function App() {
         clock={clock}
         hidden={screen === "loading" || showSplash}
         onBack={screen === "start" ? undefined : goBack}
-        onHome={screen === "start" ? undefined : goBack}
-        onSettings={screen === "start" ? () => void navigate("settings", "switch") : undefined}
+        onHome={screen === "start" ? undefined : goHome}
+        onSettings={screen === "start" ? () => openOverlayScreen("settings") : undefined}
+        usage={usage}
+        onTokens={screen === "tokens" ? undefined : () => openOverlayScreen("tokens")}
       />
 
       <main className="app__screens">
@@ -179,14 +257,15 @@ export default function App() {
           buyButtonsEnabled={buyButtonsEnabled}
           dryRun={dryRun}
           onSuperSubmit={superCalculate}
-          onManualSubmit={(stockData) => void showSummary(stockData, "switch")}
+          onManualSubmit={(stockData) => void scan(stockData.symbol, stockData)}
           onSwitchPage={() => void navigate("summary", "switch")}
           onDryRunChange={setDryRun}
-          lastScan={summaryRun > 0 ? { stock, gemini } : null}
+          lastScan={summaryRun > 0 ? { stock, legend } : null}
           onOpenLastScan={() => void navigate("summary", "switch")}
         />
-        <LoadingPage screenRef={screenRefs.loading} active={screen === "loading"} symbol={loadingSymbol} marketState={clock.marketState} />
-        <SummaryPage screenRef={screenRefs.summary} active={screen === "summary"} stock={stock} summaryRun={summaryRun} gemini={gemini} onBack={goBack} />
+        <LoadingPage screenRef={screenRefs.loading} active={screen === "loading"} symbol={loadingSymbol} marketState={clock.marketState} steps={steps} news={news.items} />
+        <SummaryPage screenRef={screenRefs.summary} active={screen === "summary"} stock={stock} summaryRun={summaryRun} legend={legend} news={news} onBack={goBack} />
+        <TokensPage screenRef={screenRefs.tokens} active={screen === "tokens"} usage={usage} error={usageError} />
         <SettingsPage screenRef={screenRefs.settings} active={screen === "settings"} dryRun={dryRun} onDryRunChange={setDryRun} />
       </main>
 

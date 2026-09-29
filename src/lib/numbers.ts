@@ -29,3 +29,9 @@ export function scoreToClass(score: number | string): string {
   if (value > 1100) return "C";
   return "D";
 }
+
+/** Token counts: full digits up to 99,999, then compact (123K, 1.2M). */
+export function formatTokens(value: number): string {
+  if (!Number.isFinite(value)) return "0";
+  return value < 100_000 ? Math.round(value).toLocaleString("en-US") : compactFormatter.format(value);
+}

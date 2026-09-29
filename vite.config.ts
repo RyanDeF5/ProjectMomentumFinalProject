@@ -6,7 +6,7 @@ export default defineConfig({
   server: {
     // During `npm run dev`, forward API calls to the Express server
     proxy: Object.fromEntries(
-      ["/analyze", "/generate", "/generateExample"].map((route) => [route, "http://localhost:3000"]),
+      ["/analyze", "/legend", "/news", "/favicon"].map((route) => [route, "http://localhost:3000"]),
     ),
   },
 });

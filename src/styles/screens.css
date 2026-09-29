@@ -49,7 +49,7 @@
   display: flex;
   align-items: flex-start;
   justify-content: flex-start;
-  cursor: pointer;
+  cursor: inherit;
 }
 .topbar__back:hover {
   background: #e6ebf2;
@@ -91,6 +91,63 @@
   background: linear-gradient(180deg, #ffe11a, #f2cf0c);
   color: var(--a9-dark);
 }
+/* Legend token counter, like the game's A-token tile */
+.topbar__tokens {
+  width: 214px;
+  padding: 0;
+}
+.topbar__tokens button {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px 0 16px;
+  border: 0;
+  background: transparent;
+  color: #fff;
+  font: inherit;
+  cursor: inherit;
+}
+.topbar__tokens button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+}
+.topbar__tokens button:disabled {
+  cursor: default;
+}
+.topbar__tokens-value {
+  flex: 1;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.topbar__tokens-limit {
+  color: var(--a9-dim);
+}
+/* While the counter rolls up: the token bobs and the "+" glows */
+.topbar__tokens.is-rolling .token-icon {
+  animation: token-bob 0.45s ease-in-out infinite alternate;
+}
+.topbar__tokens.is-rolling .topbar__plus {
+  text-shadow: 0 0 10px rgba(195, 251, 18, 0.9);
+}
+.topbar__tokens.is-rolling .topbar__tokens-value {
+  color: var(--a9-lime);
+}
+@keyframes token-bob {
+  to {
+    transform: translateY(-2px) scale(1.12);
+  }
+}
+.topbar__plus {
+  font-size: 32px;
+  font-weight: 500;
+  line-height: 1;
+  color: var(--a9-lime);
+}
+.token-icon {
+  flex: none;
+  display: block;
+}
 .topbar__icon {
   width: 80px;
   padding: 0;
@@ -103,7 +160,7 @@
   border: 0;
   background: transparent;
   color: #fff;
-  cursor: pointer;
+  cursor: inherit;
 }
 .topbar__icon button:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.08);
@@ -154,8 +211,16 @@
   display: flex;
   flex-direction: column;
   height: 100vh;
-  min-height: 600px;
   padding: var(--topbar-h) 0 0;
+}
+@media (max-height: 520px) {
+  .screen--start {
+    height: auto;
+    min-height: 100vh;
+  }
+  .home__pane {
+    overflow: visible;
+  }
 }
 .home {
   flex: 1;
@@ -163,52 +228,52 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr) clamp(360px, 31vw, 470px);
 }
+/* Corner block in the flow on top, the greeting centered in the space below: nothing can overlap */
 .home__main {
-  position: relative;
   min-height: 0;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px clamp(16px, 3vw, 48px);
+  flex-direction: column;
+  padding: clamp(12px, 3.5vh, 24px) clamp(16px, 3vw, 48px);
+  overflow: hidden;
 }
 .home__corner {
-  position: absolute;
-  top: 24px;
-  left: clamp(16px, 3vw, 48px);
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 16px;
+  gap: clamp(8px, 2vh, 16px);
 }
 .home__center {
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   text-align: center;
-  padding-top: 40px;
+  padding-top: clamp(4px, 2vh, 16px);
 }
 .hero__tags {
   display: flex;
   gap: 6px;
 }
 .hero__welcome {
-  font-size: clamp(20px, 2vw, 26px);
+  font-size: clamp(15px, min(2vw, 3.6vh), 26px);
   font-weight: 700;
   letter-spacing: 0.04em;
 }
 .hero__title {
-  margin: 6px 0 10px;
-  font-size: clamp(52px, 6.6vw, 100px);
+  margin: clamp(2px, 1vh, 6px) 0 clamp(4px, 1.4vh, 10px);
+  font-size: clamp(34px, min(6.6vw, 11.5vh), 100px);
   font-weight: 700;
   line-height: 0.92;
 }
 .hero__date {
-  font-size: clamp(16px, 1.5vw, 20px);
+  font-size: clamp(13px, min(1.5vw, 2.8vh), 20px);
   color: var(--a9-dim);
   letter-spacing: 0.03em;
 }
 .hud {
-  margin-top: 30px;
+  margin-top: clamp(8px, 3.4vh, 30px);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -220,12 +285,12 @@
   gap: 12px;
 }
 .hud__unit {
-  padding-top: 16px;
-  font-size: 22px;
+  padding-top: clamp(6px, 1.8vh, 16px);
+  font-size: clamp(16px, 2.6vh, 22px);
   font-weight: 700;
 }
 .hud__big {
-  font-size: clamp(80px, 10vw, 144px);
+  font-size: clamp(52px, min(10vw, 17vh), 144px);
   font-weight: 700;
   display: inline-block;
   transform: skewX(-10deg);
@@ -240,9 +305,9 @@
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  padding: 6px 16px 5px;
+  padding: clamp(3px, 0.8vh, 6px) 16px clamp(2px, 0.7vh, 5px);
   background: var(--a9-pink);
-  font-size: 20px;
+  font-size: clamp(16px, 2.6vh, 20px);
   font-weight: 700;
 }
 .hud__timer-label {
@@ -314,7 +379,7 @@
   padding: 0;
   border: 0;
   background: none;
-  cursor: pointer;
+  cursor: inherit;
 }
 .dev__chevron {
   width: 12px;
@@ -370,7 +435,7 @@
   background: none;
   color: #fff;
   text-align: left;
-  cursor: pointer;
+  cursor: inherit;
 }
 .lastscan__class {
   width: 64px;
@@ -441,8 +506,8 @@
   flex: none;
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 18px;
-  padding: 18px clamp(16px, 3vw, 48px) 20px;
+  gap: clamp(10px, 1.4vw, 18px);
+  padding: clamp(12px, 2.4vh, 18px) clamp(16px, 3vw, 48px) clamp(12px, 2.6vh, 20px);
   background: #110f1e;
   border-top: 2px solid #1a506e;
 }
@@ -452,17 +517,17 @@
   flex-direction: column;
   align-items: flex-end;
   justify-content: flex-end;
-  min-height: 96px;
-  padding: 10px 16px;
+  min-height: clamp(60px, 12vh, 96px);
+  padding: clamp(6px, 1.4vh, 10px) 16px;
   font-weight: 700;
   line-height: 0.92;
   text-align: right;
 }
 .mode__top {
-  font-size: clamp(18px, 1.9vw, 30px);
+  font-size: clamp(15px, min(1.9vw, 3.6vh), 30px);
 }
 .mode__bottom {
-  font-size: clamp(22px, 2.3vw, 38px);
+  font-size: clamp(18px, min(2.3vw, 4.4vh), 38px);
 }
 .mode::after {
   content: "";
@@ -483,7 +548,7 @@
   position: absolute;
   left: 0;
   right: 0;
-  top: -12px;
+  top: clamp(-12px, -1.6vh, -7px);
   height: 4px;
   background: var(--a9-pink);
 }
@@ -531,13 +596,46 @@
   display: inline-block;
   margin-bottom: 30px;
 }
-.loading__steps p {
+.loading__steps ul {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.step {
+  display: flex;
+  align-items: center;
+  gap: 12px;
   font-size: 18px;
   letter-spacing: 0.06em;
   color: var(--a9-dim);
+  transition: color 0.2s;
 }
-.loading__steps .lime {
+.step__mark {
+  width: 18px;
+  display: grid;
+  place-items: center;
+}
+.step__dot {
+  width: 6px;
+  height: 6px;
+  background: currentColor;
+  transform: rotate(45deg);
+  opacity: 0.6;
+}
+.step.is-active {
+  color: #fff;
+}
+.step.is-done .step__mark,
+.step.is-skipped .step__mark {
   color: var(--a9-lime);
+}
+.step.is-done {
+  color: #d9dee8;
+}
+.step.is-failed {
+  color: var(--a9-pink);
 }
 .loading__mosaic {
   display: grid;
@@ -595,6 +693,7 @@
   grid-template-areas:
     "head head head"
     "left center right"
+    "news news news"
     "actions actions actions";
   gap: 26px 32px;
 }
@@ -676,8 +775,9 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  min-height: 320px;
+  justify-content: flex-start;
+  padding-top: clamp(24px, 8vh, 90px);
+  min-height: 260px;
 }
 .price-hud {
   display: flex;
@@ -726,11 +826,11 @@
 }
 .rank {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: 1fr auto auto;
   align-items: center;
   column-gap: 12px;
   padding: 10px 10px 10px 20px;
-  background: rgba(7, 23, 52, 0.85);
+  background: rgba(3, 10, 24, 0.9);
 }
 .rank__numbers {
   display: flex;
@@ -761,84 +861,38 @@
   font-size: 50px;
   line-height: 1;
 }
+/* Info box after the class letter: opens the score breakdown */
+.rank__info {
+  width: 34px;
+  height: 34px;
+  align-self: center;
+  display: grid;
+  place-items: center;
+  margin-left: 8px;
+  padding: 0;
+  border: 0;
+  background: #fff;
+  color: var(--a9-dark);
+  font-size: 22px;
+  font-weight: 700;
+  font-style: italic;
+  line-height: 1;
+  cursor: inherit;
+}
+.rank__info:hover:not(:disabled) {
+  background: var(--a9-lime);
+}
+.rank__info:disabled {
+  opacity: 0.35;
+}
 .rank__class--no,
 .rank__class--pending {
   font-size: 34px;
 }
 
-.gemini {
-  background: var(--a9-panel);
-  box-shadow: inset 0 0 0 1px var(--a9-panel-edge);
-}
-.gemini__head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-height: 56px;
-  padding: 10px 18px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.05);
-}
-.gemini__star {
-  width: 22px;
-  height: 22px;
-}
-.gemini__star.is-spinning {
-  animation: gemini-spin 3s linear infinite;
-}
-@keyframes gemini-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-.gemini__title {
-  font-size: 18px;
-  letter-spacing: 0.04em;
-}
-.gemini__rating {
-  margin-left: auto;
-  animation: a9-pop-in 0.45s var(--ease-out) both;
-}
-.gemini__body {
-  min-height: 150px;
-  padding: 16px 18px 18px;
-}
-.gemini__loading {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 20px;
-  align-items: start;
-  padding-top: 4px;
-}
-.gemini__text {
-  max-height: 340px;
-  overflow-y: auto;
-  padding-right: 8px;
-  font-size: 17px;
-  font-weight: 500;
-  line-height: 1.4;
-  color: #dfe6f3;
-  white-space: pre-line;
-  animation: a9-fade-up 0.5s var(--ease-out) both;
-  scrollbar-width: thin;
-  scrollbar-color: var(--a9-slate) transparent;
-}
-
 .summary__actions {
   grid-area: actions;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  flex-wrap: wrap;
-  padding: 10px 10px 10px 24px;
-  background: rgba(0, 0, 0, 0.45);
-}
-.summary__actions > .a9-btn {
-  order: 2;
-}
-.summary__actions .a9-btn {
-  min-width: 220px;
+  margin-top: 8px;
 }
 .summary__source {
   display: flex;
@@ -858,7 +912,7 @@
   z-index: 200;
   background: var(--a9-black);
   overflow: hidden;
-  cursor: pointer;
+  cursor: inherit;
   outline: none;
 }
 /* Full-bleed background (the game uses a car photo here) */
@@ -959,6 +1013,7 @@
       "head head"
       "left right"
       "center center"
+      "news news"
       "actions actions";
   }
   .summary__center {
@@ -1007,11 +1062,20 @@
       "left"
       "center"
       "right"
+      "news"
       "actions";
   }
 }
 
 @media (max-width: 760px) {
+  .topbar__tokens {
+    width: 150px;
+  }
+  .topbar__tokens button {
+    gap: 6px;
+    padding: 0 10px;
+    font-size: 18px;
+  }
   /* Phones: not enough room for every tile, so the counters step aside */
   .topbar__counter {
     display: none;
@@ -1037,10 +1101,9 @@
     width: 84px;
     height: 84px;
   }
+  /* Phones: the session status lives in the home screen's countdown instead */
   .topbar__status {
-    width: 200px;
-    font-size: 16px;
-    padding: 0 10px;
+    display: none;
   }
   .topbar__icon {
     width: 60px;
@@ -1114,4 +1177,760 @@
 .price-hud__change .skew {
   display: inline-block;
   transform: skewX(-10deg);
+}
+
+/* ---------- Legend (AI analyst), styled after the game's Legend Pass ---------- */
+.legend-emblem {
+  display: block;
+  flex: none;
+  overflow: visible;
+  filter: drop-shadow(0 3px 8px rgba(0, 0, 0, 0.55));
+}
+.legend-emblem.is-working {
+  animation: legend-pulse 1.4s ease-in-out infinite;
+}
+@keyframes legend-pulse {
+  50% {
+    filter: drop-shadow(0 0 8px rgba(251, 193, 1, 0.35));
+  }
+}
+
+/* Panel: charcoal card with a gold-to-orange rim, like the Legend Pass card */
+.legend {
+  background:
+    linear-gradient(118deg, rgba(255, 255, 255, 0.04) 0 34%, transparent 34%),
+    var(--legend-charcoal);
+  border: 1px solid;
+  border-image: linear-gradient(180deg, rgba(230, 210, 28, 0.55), rgba(239, 125, 16, 0.45)) 1;
+}
+.legend__head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 18px 10px 12px;
+}
+.legend__titles {
+  display: flex;
+  flex-direction: column;
+  line-height: 0.95;
+}
+.legend__title {
+  font-size: 32px;
+  font-weight: 700;
+  color: var(--legend-gold);
+  letter-spacing: 0.01em;
+}
+.legend__subtitle {
+  font-size: 18px;
+  font-weight: 700;
+  color: #fff;
+}
+.legend__rating {
+  margin-left: auto;
+}
+.legend__body {
+  padding: 4px 18px 18px;
+}
+.legend__hint {
+  padding: 18px 12px;
+  background: #000;
+  text-align: center;
+  font-size: 16px;
+  letter-spacing: 0.04em;
+  color: #7d7f76;
+}
+.legend__headline {
+  padding: 10px 14px;
+  background: #000;
+  border-left: 3px solid var(--legend-gold);
+  color: #fff;
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.15;
+  text-transform: uppercase;
+}
+.legend__section {
+  margin: 14px 0 8px;
+  text-align: center;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--legend-gold);
+  letter-spacing: 0.03em;
+}
+.legend__rows {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+/* Black rows with a gold marker, like the SEASON BENEFITS list */
+.legend-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 14px 10px 12px;
+  background: #000;
+}
+.legend-row__mark {
+  flex: none;
+  margin-top: 1px;
+  color: var(--legend-gold);
+}
+.legend-row.is-risk .legend-row__mark {
+  color: var(--legend-orange);
+}
+.legend-row__body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.legend-row__label {
+  font-size: 13px;
+  letter-spacing: 0.14em;
+  color: var(--legend-gold);
+}
+.legend-row.is-risk .legend-row__label {
+  color: var(--legend-orange);
+}
+.legend-row__text {
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1.3;
+  color: #f1f1ea;
+}
+.legend-row.is-loading {
+  position: relative;
+  height: 58px;
+  overflow: hidden;
+}
+.legend-row__shimmer {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(251, 193, 1, 0.22), transparent);
+  width: 55%;
+  animation: legend-shimmer 1.3s linear infinite;
+}
+@keyframes legend-shimmer {
+  from {
+    transform: translateX(-110%);
+  }
+  to {
+    transform: translateX(200%);
+  }
+}
+.legend__model {
+  margin-top: 10px;
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  color: #7d7f76;
+  text-align: right;
+  text-transform: uppercase;
+}
+
+/* Banner: like "UNLOCK EXCLUSIVE REWARDS WITH THE LEGEND PASS" */
+.legend-banner {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  min-height: 72px;
+  padding: 8px 10px 8px 92px;
+  background:
+    linear-gradient(90deg, rgba(10, 24, 50, 0.96), rgba(8, 18, 40, 0.92)),
+    url("/images/bg/loading-map.jpg") center / cover;
+  border-top: 1px solid rgba(232, 197, 26, 0.5);
+  border-bottom: 1px solid rgba(232, 197, 26, 0.5);
+}
+.legend-banner__emblem {
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+.legend-banner__text {
+  flex: 1;
+  font-size: clamp(16px, 1.6vw, 22px);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.legend-banner__mark {
+  background: none;
+  color: var(--legend-gold);
+}
+.legend-banner .summary__source {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+.legend-banner .a9-btn {
+  min-width: 200px;
+}
+
+/* Settings: Legend server status */
+.setting--legend {
+  grid-column: 1 / -1;
+}
+.legend-status {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+  padding: 12px 18px 12px 12px;
+  background:
+    linear-gradient(118deg, rgba(255, 255, 255, 0.04) 0 30%, transparent 30%),
+    var(--legend-charcoal);
+  border: 1px solid;
+  border-image: linear-gradient(180deg, rgba(230, 210, 28, 0.55), rgba(239, 125, 16, 0.45)) 1;
+}
+.legend-status__titles {
+  display: flex;
+  flex-direction: column;
+  line-height: 0.95;
+  margin-right: 12px;
+}
+.legend-status__facts {
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 28px;
+  margin: 0;
+}
+.legend-status__facts dt {
+  font-size: 13px;
+  letter-spacing: 0.14em;
+  color: var(--legend-gold);
+}
+.legend-status__facts dd {
+  margin: 2px 0 0;
+  font-size: 18px;
+  text-transform: uppercase;
+}
+
+@media (max-width: 760px) {
+  .legend-banner {
+    flex-wrap: wrap;
+    padding-left: 90px;
+  }
+  .legend-banner .a9-btn {
+    width: 100%;
+  }
+  .legend__title {
+    font-size: 34px;
+  }
+}
+
+/* ---------- Legend tokens screen, laid out like the game's token shop ---------- */
+.tokens {
+  max-width: 1280px;
+  margin: 0 auto;
+}
+.tokens__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.tokens__note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 17px;
+  letter-spacing: 0.04em;
+}
+.tokens__note-bar {
+  width: 4px;
+  height: 18px;
+  background: var(--a9-pink);
+}
+.tokens__body {
+  display: flex;
+  gap: 24px;
+  margin-top: 30px;
+  padding-top: 20px;
+  border-top: 1px solid rgba(255, 255, 255, 0.35);
+}
+/* Vertical label with dotted leaders, like TOKENS / CREDITS in the shop */
+.tokens__rail {
+  flex: none;
+  width: 56px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+.tokens__rail::before,
+.tokens__rail::after {
+  content: "";
+  flex: 1;
+  width: 4px;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.5) 1px, transparent 1.5px) center top / 4px 9px repeat-y;
+}
+.tokens__rail span {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  font-size: 40px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.tokens__grid {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 22px;
+}
+.token-card {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  background: #0b1426;
+  box-shadow: 0 0 0 2px #0b1426;
+}
+.token-card__art {
+  position: relative;
+  min-height: 210px;
+  padding: 12px 12px 10px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  background:
+    repeating-linear-gradient(135deg, transparent 0 7px, rgba(255, 255, 255, 0.07) 7px 9px) right / 45% 100% no-repeat,
+    linear-gradient(115deg, #ffd50d 0%, #ffc107 55%, #f7a800 100%);
+}
+/* Faint large emblem behind the numbers */
+.token-card__watermark {
+  position: absolute;
+  left: -30px;
+  top: 8px;
+  width: 170px;
+  height: 190px;
+  border: 22px solid rgba(255, 255, 255, 0.16);
+  clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
+}
+.token-card__tag {
+  position: relative;
+  padding: 3px 7px 1px;
+  background: #111317;
+  color: #f2cf3a;
+  font-size: 16px;
+  line-height: 1;
+}
+.token-card__count {
+  position: relative;
+  padding: 2px 8px 0;
+  background: #111317;
+  color: #fff;
+  font-size: 44px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.token-card__detail {
+  position: relative;
+  margin-top: 6px;
+  color: #1b1500;
+  font-size: 18px;
+}
+.token-card__split {
+  position: relative;
+  color: rgba(27, 21, 0, 0.7);
+  font-size: 13px;
+  letter-spacing: 0.04em;
+}
+.token-card .token-pile {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  width: 62%;
+  max-width: 190px;
+}
+.token-card__ribbon {
+  position: absolute;
+  top: 8px;
+  right: -6px;
+  padding: 6px 20px 5px 14px;
+  color: #fff;
+  font-size: 16px;
+  font-style: normal;
+  line-height: 1;
+  transform: rotate(-8deg);
+  clip-path: polygon(8% 0, 100% 0, 100% 100%, 0 100%);
+}
+.token-card__ribbon.is-purple {
+  background: linear-gradient(135deg, #8c3cf0, #5a23c8);
+}
+.token-card__ribbon.is-pink {
+  background: linear-gradient(135deg, #ff4a86, #e8185a);
+}
+/* Lime bar, like the price button under each shop card */
+.token-card__bar {
+  position: relative;
+  padding: 16px 12px 14px;
+  background: var(--a9-lime);
+  color: var(--a9-dark);
+  text-align: center;
+  font-size: 26px;
+  line-height: 1;
+}
+.token-card__bar::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 12px;
+  height: 12px;
+  clip-path: polygon(100% 0, 100% 100%, 0 100%);
+  background: var(--a9-dark);
+}
+.tokens__foot {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  margin-top: 26px;
+  font-size: 15px;
+  letter-spacing: 0.06em;
+  color: var(--a9-dim);
+}
+.tokens__foot strong {
+  color: #fff;
+}
+.tokens__dot {
+  width: 5px;
+  height: 5px;
+  background: var(--a9-dim);
+  transform: rotate(45deg);
+}
+
+@media (max-width: 1100px) {
+  .tokens__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 560px) {
+  .tokens__rail {
+    display: none;
+  }
+  .tokens__grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ---------- News strip (summary) ---------- */
+.summary__news {
+  grid-area: news;
+  min-width: 0;
+}
+.news__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.news__sources {
+  font-size: 13px;
+  letter-spacing: 0.1em;
+  color: var(--a9-dim);
+}
+.news__list {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(250px, 1fr);
+  gap: 12px;
+  margin: 0;
+  padding: 0 0 8px;
+  list-style: none;
+  overflow-x: auto;
+  scroll-snap-type: x proximity;
+  scrollbar-width: thin;
+  scrollbar-color: #1a62c2 transparent;
+}
+.news-card {
+  scroll-snap-align: start;
+  min-width: 0;
+}
+.news-card__link {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: 12px;
+  background: rgba(7, 23, 52, 0.92);
+  box-shadow: inset 0 0 0 1px var(--a9-panel-edge);
+  color: #fff;
+  text-decoration: none;
+  transition: background-color 0.12s;
+}
+.news-card__link:hover {
+  background: rgba(20, 44, 88, 0.95);
+}
+.news-card.is-key .news-card__link {
+  box-shadow: inset 0 0 0 1px rgba(251, 193, 1, 0.45);
+}
+.news-card__art {
+  position: relative;
+  height: 110px;
+  overflow: hidden;
+  background: repeating-linear-gradient(135deg, #13284a 0 12px, #102241 12px 24px);
+}
+.news-card__art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.news-card__initial {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 56px;
+  color: rgba(255, 255, 255, 0.18);
+}
+.news-card__flag {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+}
+.news-card__meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 12px;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  color: var(--a9-dim);
+  text-transform: uppercase;
+}
+.news-card__publisher {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.news-card__age {
+  flex: none;
+  color: var(--a9-cyan);
+}
+.news-card__title {
+  padding: 0 12px;
+  font-size: 16px;
+  line-height: 1.2;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.news-card__impact {
+  margin: 0 12px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.25;
+  color: #d9dee8;
+}
+
+/* ---------- Legend score breakdown (opened from the rank block's info box) ---------- */
+.breakdown {
+  width: 100%;
+  text-align: left;
+}
+.breakdown__intro {
+  margin-bottom: 12px;
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.35;
+  color: var(--a9-dim);
+}
+.breakdown__rows {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding: 10px 12px;
+  list-style: none;
+  background: #000;
+}
+.breakdown__row {
+  display: grid;
+  grid-template-columns: 170px 1fr 80px;
+  align-items: center;
+  gap: 12px;
+  font-size: 15px;
+  letter-spacing: 0.06em;
+}
+.breakdown__label {
+  color: #c9cdd3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.breakdown__track {
+  height: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+.breakdown__fill {
+  display: block;
+  height: 100%;
+  transform-origin: 0 50%;
+}
+.breakdown__fill.is-cyan {
+  background: var(--a9-cyan);
+}
+.breakdown__fill.is-gold {
+  background: var(--legend-gold);
+}
+.breakdown__points {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.breakdown__points small {
+  color: #7d7f76;
+}
+.breakdown__row.is-penalty .breakdown__label,
+.breakdown__row.is-penalty .breakdown__points {
+  color: var(--legend-orange);
+}
+.breakdown__flags {
+  font-size: 11px;
+  color: #9a9c93;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.breakdown__total {
+  margin-top: 6px;
+  text-align: right;
+  font-size: 14px;
+  letter-spacing: 0.1em;
+  color: #9a9c93;
+}
+.breakdown__total strong {
+  font-size: 20px;
+  color: #fff;
+}
+.breakdown__total small {
+  color: #7d7f76;
+}
+
+/* ---------- Short windows (laptops with browser chrome) ---------- */
+@media (max-height: 760px) {
+  .home__corner {
+    flex-direction: row;
+    align-items: center;
+    gap: 14px;
+  }
+  .lastscan__class {
+    width: 48px;
+    height: 48px;
+    font-size: 32px;
+  }
+  .lastscan__model {
+    font-size: 22px;
+  }
+  .lastscan__eyebrow {
+    display: none;
+  }
+  .lastscan__bar {
+    width: 150px;
+    height: 16px;
+  }
+  .lastscan__score {
+    font-size: 12px;
+    line-height: 16px;
+  }
+  .pane__title {
+    font-size: clamp(28px, 5.4vh, 54px);
+  }
+}
+
+/* ---------- Loading: active step marker and the source carousel ---------- */
+.step__pulse {
+  width: 8px;
+  height: 8px;
+  background: var(--a9-pink);
+  transform: rotate(45deg);
+  animation: step-pulse 0.9s ease-in-out infinite;
+}
+@keyframes step-pulse {
+  50% {
+    opacity: 0.3;
+    transform: rotate(45deg) scale(0.7);
+  }
+}
+.sources {
+  margin-top: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+.sources__ring {
+  position: relative;
+  width: 260px;
+  max-width: 100%;
+  height: 50px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  animation: sources-ring 0.35s ease-out;
+}
+@keyframes sources-ring {
+  from {
+    opacity: 0;
+  }
+}
+/* Positioned every frame by SourceCarousel (transform, opacity, stacking) */
+.sources__tile {
+  position: absolute;
+  left: calc(50% - 19px);
+  top: 8px;
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  background: #fff;
+  color: var(--a9-dark);
+  font-size: 18px;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.3);
+  will-change: transform, opacity;
+  backface-visibility: hidden;
+  transition: box-shadow 0.25s ease;
+}
+.sources__tile img {
+  width: 22px;
+  height: 22px;
+  display: block;
+}
+.sources__tile.is-front {
+  box-shadow:
+    0 0 0 2px var(--legend-gold),
+    0 4px 12px rgba(0, 0, 0, 0.45);
+}
+.sources__caption {
+  width: 260px;
+  max-width: 100%;
+  min-height: 18px;
+  text-align: center;
+  font-size: 13px;
+  letter-spacing: 0.1em;
+  color: var(--a9-dim);
+}
+.sources__caption strong {
+  color: #fff;
+}
+.sources__name {
+  display: inline-block;
+  animation: sources-caption 0.3s ease-out;
+}
+@keyframes sources-caption {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
 }

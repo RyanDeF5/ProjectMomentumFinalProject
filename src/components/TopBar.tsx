@@ -1,8 +1,11 @@
 import type { ReactNode, Ref } from "react";
 import { sfx } from "../audio/sfx";
 import type { ClockData } from "../lib/clock";
-import type { MarketState } from "../lib/types";
+import { formatTokens } from "../lib/numbers";
+import { useRollingNumber } from "../lib/useRollingNumber";
+import type { MarketState, TokenUsage } from "../lib/types";
 import { BackIcon, CalendarIcon, ClockIcon, GearIcon, HomeIcon } from "../ui/Icons";
+import { TokenIcon } from "../ui/TokenIcon";
 
 interface TopBarProps {
   barRef: Ref<HTMLElement>;
@@ -11,6 +14,8 @@ interface TopBarProps {
   onBack?: () => void;
   onHome?: () => void;
   onSettings?: () => void;
+  usage: TokenUsage | null;
+  onTokens?: () => void;
 }
 
 // The wide highlighted tile works like the game's SHOP / FREE PACK! / NEW OFFER! tile
@@ -31,8 +36,12 @@ function Tile({ order, className = "", children }: { order: number; className?: 
   );
 }
 
-/** Top bar like the game's: tiles anchored to the right (gear/home, highlighted tile, counters). */
-export function TopBar({ barRef, clock, hidden, onBack, onHome, onSettings }: TopBarProps) {
+/**
+ * Top bar like the game's: tiles anchored to the right edge and running right to left
+ * (gear/home, market status, date, clock, Legend tokens). New tiles go on the left end.
+ */
+export function TopBar({ barRef, clock, hidden, onBack, onHome, onSettings, usage, onTokens }: TopBarProps) {
+  const tokens = useRollingNumber(usage ? usage.today.tokens : null);
   const shortDate = new Date().toLocaleString("en-US", { month: "short", day: "numeric" }).toUpperCase();
 
   return (
@@ -55,6 +64,28 @@ export function TopBar({ barRef, clock, hidden, onBack, onHome, onSettings }: To
 
       {/* Empty strip on the left; tiles are anchored to the right edge and run right to left */}
       <div className="topbar__space" />
+
+      {/* Legend tokens used today, like the game's A-token counter. New tiles are added on this end. */}
+      <Tile order={4} className={`topbar__tokens${tokens.rolling ? " is-rolling" : ""}`}>
+        <button
+          type="button"
+          aria-label={`Legend tokens used today: ${usage ? usage.today.tokens : "unknown"}. Open token usage`}
+          disabled={!onTokens}
+          onClick={() => {
+            sfx.play("click");
+            onTokens?.();
+          }}
+        >
+          <TokenIcon size={26} />
+          <span className="topbar__tokens-value">
+            {tokens.value !== null ? formatTokens(tokens.value) : "--"}
+            <span className="topbar__tokens-limit">/{usage?.dailyLimit ? formatTokens(usage.dailyLimit) : "∞"}</span>
+          </span>
+          <span className="topbar__plus" aria-hidden>
+            +
+          </span>
+        </button>
+      </Tile>
 
       <Tile order={3} className="topbar__counter">
         <ClockIcon />

@@ -1,5 +1,9 @@
+import { useState } from "react";
+import { createPortal } from "react-dom";
 import type { Ref } from "react";
-import { GeminiPanel, type GeminiState } from "../components/GeminiPanel";
+import { LegendBanner } from "../components/LegendBanner";
+import { LegendPanel, ScoreBreakdown, type LegendState } from "../components/LegendPanel";
+import { NewsStrip, type NewsState } from "../components/NewsStrip";
 import { RankBlock } from "../components/RankBlock";
 import { StatRow } from "../components/StatRow";
 import { compactFormatter } from "../lib/numbers";
@@ -7,8 +11,8 @@ import type { StockData } from "../lib/types";
 import { useCountUp } from "../lib/useCountUp";
 import { Button } from "../ui/Button";
 import { Chip } from "../ui/Chip";
+import { Dialog } from "../ui/Dialog";
 import { Reveal } from "../ui/Reveal";
-import { RevealText } from "../ui/RevealText";
 import { SectionTitle } from "../ui/SectionTitle";
 
 interface SummaryPageProps {
@@ -17,16 +21,20 @@ interface SummaryPageProps {
   stock: StockData;
   /** Increments each time a new stock is summarized */
   summaryRun: number;
-  gemini: GeminiState;
+  legend: LegendState;
+  news: NewsState;
   onBack: () => void;
 }
 
-export function SummaryPage({ screenRef, active, stock, summaryRun, gemini, onBack }: SummaryPageProps) {
+export function SummaryPage({ screenRef, active, stock, summaryRun, legend, news, onBack }: SummaryPageProps) {
   const hasStock = summaryRun > 0;
+  const [showBreakdown, setShowBreakdown] = useState(false);
+  // Counters and the rank reveal restart each time the screen is shown
+  const revealKey = active ? summaryRun : 0;
   const rvol = hasStock ? stock.volume / stock.averageVolume : 0;
   const percentChange = hasStock ? ((stock.currentPrice - stock.lastClose) / stock.lastClose) * 100 : 0;
   const up = !hasStock || percentChange > 0;
-  const price = useCountUp(stock.currentPrice, { token: summaryRun, delay: 300, duration: 1000 });
+  const price = useCountUp(stock.currentPrice, { token: revealKey, delay: 300, duration: 1000 });
 
   // Bar scales match the original: 100% gain, 8x RVOL, $30, 20M volume and 20M float fill a bar
   const stats = [
@@ -84,9 +92,10 @@ export function SummaryPage({ screenRef, active, stock, summaryRun, gemini, onBa
 
           <Reveal kind="panel" className="stats card">
             {stats.map((stat, i) => (
-              <StatRow key={stat.icon} {...stat} token={summaryRun} delay={320 + i * 60} />
+              <StatRow key={stat.icon} {...stat} token={revealKey} delay={320 + i * 60} />
             ))}
           </Reveal>
+
         </div>
 
         <div className="summary__center">
@@ -103,24 +112,37 @@ export function SummaryPage({ screenRef, active, stock, summaryRun, gemini, onBa
         </div>
 
         <div className="summary__right">
-          <RankBlock gemini={gemini} />
-          <GeminiPanel gemini={gemini} />
+          <RankBlock legend={legend} revealKey={revealKey} onInfo={() => setShowBreakdown(true)} />
+          <LegendPanel legend={legend} symbol={stock.symbol} />
         </div>
 
-        <div className="summary__actions">
-          <Button variant="normal" onClick={onBack}>
-            BACK
-          </Button>
-          <Reveal kind="fade" className="summary__source">
-            <Chip tone="dark" size="sm">
-              {stock.fullName === "Not Identified" ? "DATA: MANUAL ENTRY" : "DATA: YAHOO FINANCE"}
-            </Chip>
-            <span className="summary__disclaimer">
-              <RevealText dir="rtl">NOT FINANCIAL ADVICE</RevealText>
-            </span>
-          </Reveal>
+        <div className="summary__news">
+          <NewsStrip news={news} symbol={stock.symbol} keyNews={legend.status === "done" ? legend.response.keyNews : []} />
         </div>
+
+        <Reveal kind="slide" wash="none" className="summary__actions">
+          <LegendBanner legend={legend} symbol={stock.symbol}>
+            <span className="summary__source">
+              <Chip tone="dark" size="sm">
+                {stock.fullName === "Not Identified" ? "DATA: MANUAL ENTRY" : "DATA: YAHOO FINANCE"}
+              </Chip>
+              <span className="summary__disclaimer">NOT FINANCIAL ADVICE</span>
+            </span>
+            <Button variant="normal" onClick={onBack}>
+              BACK
+            </Button>
+          </LegendBanner>
+        </Reveal>
       </div>
+
+      {showBreakdown &&
+        legend.status === "done" &&
+        createPortal(
+          <Dialog title="SCORE BREAKDOWN" variant="info" onClose={() => setShowBreakdown(false)}>
+            <ScoreBreakdown response={legend.response} />
+          </Dialog>,
+          document.body,
+        )}
     </section>
   );
 }

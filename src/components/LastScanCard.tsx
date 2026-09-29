@@ -1,18 +1,18 @@
 import { scoreToClass } from "../lib/numbers";
 import type { StockData } from "../lib/types";
 import { sfx } from "../audio/sfx";
-import type { GeminiState } from "./GeminiPanel";
+import type { LegendState } from "./LegendPanel";
 
 interface LastScanCardProps {
   stock: StockData;
-  gemini: GeminiState;
+  legend: LegendState;
   onOpen: () => void;
 }
 
 /** Last scanned stock, shown top-left like the current car's card on the game's home screen. */
-export function LastScanCard({ stock, gemini, onOpen }: LastScanCardProps) {
-  const done = gemini.status === "done";
-  const score = done ? Number(gemini.response.score) : NaN;
+export function LastScanCard({ stock, legend, onOpen }: LastScanCardProps) {
+  const done = legend.status === "done";
+  const score = done ? Number(legend.response.score) : NaN;
   const fill = Number.isFinite(score) ? Math.min(1, Math.max(0, score / 2000)) : 0;
 
   return (
@@ -25,7 +25,7 @@ export function LastScanCard({ stock, gemini, onOpen }: LastScanCardProps) {
       }}
       aria-label={`Open last scan: ${stock.symbol}`}
     >
-      <span className="lastscan__class">{done ? scoreToClass(gemini.response.score) : "?"}</span>
+      <span className="lastscan__class">{done ? scoreToClass(legend.response.score) : "?"}</span>
       <span className="lastscan__info">
         <span className="lastscan__eyebrow">LAST SCAN</span>
         <span className="lastscan__brand">{stock.fullName || "NOT IDENTIFIED"}</span>
