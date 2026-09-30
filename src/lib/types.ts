@@ -84,6 +84,12 @@ export interface TokenTally {
   completion: number;
   /** Number of Legend analyses */
   requests: number;
+  /** Tokens by hour of the day (0 = midnight), summed over the period */
+  hours: number[];
+  /** Scans by hour of the day */
+  hourScans: number[];
+  /** Tokens recorded before hourly tracking began, so not in `hours` */
+  untimed: number;
 }
 
 /** Legend's token usage ("A-tokens"), from the server's usage log */
@@ -96,4 +102,8 @@ export interface TokenUsage {
   lifetime: TokenTally;
   /** First day with recorded usage (YYYY-MM-DD) */
   since: string | null;
+  /** First day with an hour-by-hour split */
+  hourlySince: string | null;
+  /** The server's current hour (0-23) */
+  hour: number;
 }

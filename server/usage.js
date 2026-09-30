@@ -1,6 +1,7 @@
 // Legend token usage ("A-tokens"): every analysis adds the tokens LM Studio reports to a per-day
-// tally, saved to a JSON file so the counts survive restarts. Days use the server's local time;
-// weeks start on Monday.
+// tally (split by hour of the day, for the Tokens screen's graph), saved to a JSON file so the counts
+// survive restarts. Days use the server's local time; weeks start on Monday. Days recorded before
+// hourly tracking have no hour split; their tokens are reported as "untimed".
 
 const fs = require("fs");
 const path = require("path");
@@ -45,6 +46,11 @@ function record(usage, now = new Date()) {
   day.completion += completion;
   day.total += total;
   day.requests += 1;
+  const hour = now.getHours();
+  day.hours = day.hours || Array(24).fill(0);
+  day.hourScans = day.hourScans || Array(24).fill(0);
+  day.hours[hour] += total;
+  day.hourScans[hour] += 1;
   store.days[key] = day;
   try {
     save();
@@ -63,9 +69,17 @@ function sum(keys) {
       acc.prompt += day.prompt;
       acc.completion += day.completion;
       acc.requests += day.requests;
+      if (Array.isArray(day.hours)) {
+        day.hours.forEach((tokens, h) => (acc.hours[h] += tokens));
+        (day.hourScans || []).forEach((scans, h) => (acc.hourScans[h] += scans));
+        // Scans from before the hour split was added on this day
+        acc.untimed += day.total - day.hours.reduce((a, b) => a + b, 0);
+      } else {
+        acc.untimed += day.total;
+      }
       return acc;
     },
-    { tokens: 0, prompt: 0, completion: 0, requests: 0 },
+    { tokens: 0, prompt: 0, completion: 0, requests: 0, hours: Array(24).fill(0), hourScans: Array(24).fill(0), untimed: 0 },
   );
 }
 
@@ -83,6 +97,8 @@ function summary(now = new Date()) {
     month: sum(keys.filter((k) => k.startsWith(monthPrefix))),
     lifetime: sum(keys),
     since: keys[0] || null,
+    hourlySince: keys.find((k) => Array.isArray(store.days[k].hours)) || null,
+    hour: now.getHours(),
   };
 }
 

@@ -137,7 +137,7 @@ Legend replaces the original Gemini integration. It's styled after the game's Le
 - `GET /legend/status`
 
 **In the app:**
-- The loading screen steps through quote → "N RECENT STORIES FOUND" → Legend. Under the steps, a source carousel cycles the site icons being searched (Yahoo Finance, Google News) and then the publishers Legend is reading, merry-go-round style: the tiles ride an ellipse driven by `requestAnimationFrame` (transforms and opacity only), with the current site in front at full size with a gold frame and "LEGEND IS READING <PUBLISHER>". Tiles further round shrink and dim, but the front tile is never scaled up, so the icons stay crisp. The ring spins up gently and brakes forward onto a site, never snapping backwards, then settles on "N SOURCES READ". Icons come from `GET /favicon?domain=`, which the server fetches once and caches, so the page only talks to this server. The bottom-right diamond is the screen's only loading indicator.
+- The loading screen steps through quote → "N RECENT STORIES FOUND" → Legend. Under the steps, a source carousel cycles the site icons being searched (Yahoo Finance, Google News) and then the publishers Legend is reading, like an AI search showing the sites it's looking through. It shows the label (with a light sweep while working) and a tight row of three small overlapping white icon tiles. Every 0.9 s a new site slides in on the left and the oldest shrinks away on the right. With three or fewer sites the row holds still. It ends on "N SOURCES READ". Icons come from `GET /favicon?domain=`, which the server fetches once and caches, so the page only talks to this server. The bottom-right diamond is the screen's only loading indicator.
 - The summary shows Legend's panel (verdict, then the NEWS · sentiment · catalyst row, conviction, efficiency and risks). The **"i" box** after the rank's class letter (where the game's rank block has its small icon box) opens the **SCORE BREAKDOWN** in an info dialog: each quant component, the catalyst bonus, any risk penalty and the total.
 - The **LATEST NEWS** strip shows the stories as cards: thumbnail, publisher, age and headline. Legend's key stories come first, with its sentiment and impact line, and each card opens the article.
 
@@ -147,11 +147,16 @@ Legend replaces the original Gemini integration. It's styled after the game's Le
 
 Like the game's A-tokens, **Legend tokens** count the AI tokens Legend uses.
 
-- **Recording** (`server/usage.js`): every analysis adds LM Studio's reported `usage` (prompt, completion, total) to a per-day tally in `server/data/token-usage.json`. The file is git-ignored; set `LEGEND_USAGE_FILE` to move it. Days use the server's local time, and weeks start on Monday. Dry runs don't use tokens.
+- **Recording** (`server/usage.js`): every analysis adds LM Studio's reported `usage` (prompt, completion, total) to a per-day tally in `server/data/token-usage.json`, split by hour of the day (tokens and scans) for the graph. Days recorded before hourly tracking began (Sep 29, 2026) have no hour split. The file is git-ignored; set `LEGEND_USAGE_FILE` to move it. Days use the server's local time, and weeks start on Monday. Dry runs don't use tokens.
 - **Allowance:** unlimited for now (`LEGEND_DAILY_TOKENS` empty), shown as `/∞`.
-- **Endpoint:** `GET /legend/usage` returns `{ dailyLimit, today, week, month, lifetime, since }`. Each period has `{ tokens, prompt, completion, requests }`.
+- **Endpoint:** `GET /legend/usage` returns `{ dailyLimit, today, week, month, lifetime, since }`. Each period has `{ tokens, prompt, completion, requests, hours[24], hourScans[24], untimed }`. The response also has `hourlySince` and the server's current `hour`.
 - **Top bar:** the token tile shows today's usage as `643/∞` with the blue token icon and a lime "+". When the total grows, it rolls up from the old value (the token bobs and the "+" glows). It refreshes on load, every minute, and once the summary is on screen after each analysis.
-- **Tokens screen:** clicking the tile opens a screen styled like the game's token shop, with a vertical TOKENS label and four yellow cards: TODAY (LIVE ribbon), THIS WEEK, THIS MONTH and LIFETIME (ALL TIME ribbon). Each card shows the token count, scans, input/output split and a token pile that grows with the period, over a lime period bar. Back returns to the screen you came from.
+- **Tokens screen:** clicking the tile opens a screen styled like the game's token shop, with a vertical TOKENS label and four yellow cards: TODAY (LIVE ribbon), THIS WEEK, THIS MONTH and LIFETIME (ALL TIME ribbon). Each card shows the token count, scans, input/output split and a token pile that grows with the period, over a lime period bar. The cards are buttons: pressing one (white frame = selected; TODAY on each visit) shows that period in the **USAGE BY HOUR** graph below.
+  - The graph (`components/TokenHourChart`) is a boxy navy panel with 24 gold bars (midnight to 11 PM) growing up in a stagger, a round-number scale with a middle gridline, and the peak hour.
+  - Pre-market, market-open (lime tint) and after-hours bands are shaded behind the bars, in the same local time as the top bar's status. On TODAY, a pink NOW tag marks the current hour.
+  - Hovering or tapping a bar shows a white tooltip with the hour, tokens and scans. Tokens from before hourly tracking are noted underneath rather than guessed.
+
+Back returns to the screen you came from.
 
 ## Behavior changes from the original
 

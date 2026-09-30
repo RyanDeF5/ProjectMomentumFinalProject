@@ -10,6 +10,9 @@ interface RevealProps {
   /** Color of the block the element appears as before washing into its content */
   wash?: "white" | "pink" | "lime" | "none";
   children?: ReactNode;
+  /** For interactive reveals (as="button") */
+  onClick?: () => void;
+  type?: "button";
   [attr: `aria-${string}` | `data-${string}`]: unknown;
 }
 
