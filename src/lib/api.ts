@@ -11,6 +11,9 @@ export interface AnalyzeResponse {
   currentVolume: number;
   averageVolume: number;
   float: number;
+  /** Where it trades: Yahoo's exchange code (e.g. NMS) and name (e.g. NasdaqGS) */
+  exchange: string | null;
+  exchangeName: string | null;
 }
 
 async function post<T>(path: string, body: unknown): Promise<T> {

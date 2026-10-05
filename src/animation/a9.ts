@@ -2,7 +2,7 @@
 //
 // Screens mark their elements with data attributes (the ui/ components render these), and the
 // engine animates them in and out. Timings come from a frame-by-frame study of in-game footage:
-//   exit:  pressed button flashes, elements wash out toward white with a random stagger, hard cut
+//   exit:  pressed button flashes, elements wash out toward white with a short ordered stagger, hard cut
 //   enter: top bar rebuilds from the center, titles are revealed behind a moving pink block,
 //          panels appear as solid blocks then wash into their content, rows slide in from the
 //          right, and stat bars / rank badges land last.
@@ -23,16 +23,16 @@ const EASE_IN_OUT = "cubic-bezier(0.65, 0, 0.35, 1)";
 
 // When each kind starts on enter, and how far apart siblings of that kind are staggered
 const ENTER_TIMING: Record<A9Kind, { base: number; stagger: number }> = {
-  text: { base: 120, stagger: 70 },
-  panel: { base: 150, stagger: 70 },
-  slide: { base: 240, stagger: 45 },
-  fade: { base: 220, stagger: 40 },
+  text: { base: 60, stagger: 40 },
+  panel: { base: 100, stagger: 45 },
+  slide: { base: 180, stagger: 35 },
+  fade: { base: 140, stagger: 30 },
   bar: { base: 520, stagger: 70 },
   pop: { base: 560, stagger: 90 },
 };
 
 // Nested elements start this long after the element that contains them
-const NESTED_DELAY = 140;
+const NESTED_DELAY = 70;
 
 const running = new WeakMap<Element, Animation[]>();
 
@@ -57,7 +57,10 @@ function cancelOwned(owner: Element) {
 function settle(animations: Animation[]): Promise<void> {
   const end = Math.max(0, ...animations.map((a) => Number(a.effect?.getComputedTiming().endTime ?? 0)));
   const finished = Promise.all(animations.map((a) => a.finished.catch(() => undefined)));
-  return Promise.race([finished, new Promise((resolve) => setTimeout(resolve, end + 100))]).then(() => undefined);
+  let timeout: ReturnType<typeof setTimeout>;
+  return Promise.race([finished, new Promise((resolve) => { timeout = setTimeout(resolve, end + 100); })])
+    .then(() => undefined)
+    .finally(() => clearTimeout(timeout));
 }
 
 function wash(el: HTMLElement): HTMLElement | null {
@@ -79,7 +82,7 @@ function enterElement(owner: Element, el: HTMLElement, kind: A9Kind, delay: numb
       const hidden = rtl ? "inset(0 0 0 100%)" : "inset(0 100% 0 0)";
       const shown = "inset(0 0 0 0)";
       // Longer text takes a little longer, like the game's title wipes
-      const duration = Math.min(620, 300 + (content.textContent?.length ?? 0) * 11);
+      const duration = Math.min(480, 280 + (content.textContent?.length ?? 0) * 5);
       const split = 0.38;
       // Phase 1: pink block grows to cover the text. Phase 2: it shrinks toward the far edge,
       // uncovering the text behind its trailing edge.
@@ -105,29 +108,29 @@ function enterElement(owner: Element, el: HTMLElement, kind: A9Kind, delay: numb
       break;
     }
     case "panel": {
-      add(el, [{ transform: "scaleX(0)", transformOrigin: "0% 50%" }, { transform: "scaleX(1)", transformOrigin: "0% 50%" }], {
+      add(el, [{ clipPath: "inset(0 100% 0 0)" }, { clipPath: "inset(0 0 0 0)" }], {
         duration: 230,
         easing: EASE_OUT,
       });
       const w = wash(el);
-      if (w) add(w, [{ opacity: 1 }, { opacity: 1, offset: 0.4 }, { opacity: 0 }], { duration: 560, easing: "ease-out" });
+      if (w) add(w, [{ opacity: 1 }, { opacity: 1, offset: 0.4 }, { opacity: 0 }], { duration: 400, easing: "ease-out" });
       break;
     }
     case "slide": {
-      add(el, [{ transform: "translateX(72px)", opacity: 0 }, { transform: "translateX(0)", opacity: 1 }], {
-        duration: 440,
+      add(el, [{ transform: "translateX(36px)", opacity: 0 }, { transform: "translateX(0)", opacity: 1 }], {
+        duration: 360,
         easing: EASE_OUT,
       });
       const w = wash(el);
-      if (w) add(w, [{ opacity: 0.85 }, { opacity: 0 }], { duration: 520, easing: "ease-out" });
+      if (w) add(w, [{ opacity: 0.65 }, { opacity: 0 }], { duration: 380, easing: "ease-out" });
       break;
     }
     case "pop":
       add(
         el,
         [
-          { transform: "scale(0.4)", opacity: 0 },
-          { transform: "scale(1.12)", opacity: 1, offset: 0.6 },
+          { transform: "scale(0.88)", opacity: 0 },
+          { transform: "scale(1.035)", opacity: 1, offset: 0.6 },
           { transform: "scale(1)", opacity: 1 },
         ],
         { duration: 380, easing: EASE_OUT },
@@ -139,7 +142,7 @@ function enterElement(owner: Element, el: HTMLElement, kind: A9Kind, delay: numb
     case "bar":
       // Grows left to right from empty to the element's own inline transform. The offset is
       // required: a lone keyframe otherwise counts as the end, making the bar shrink then snap back.
-      add(el, [{ transform: "scaleX(0)", offset: 0 }], { duration: 900, easing: EASE_OUT });
+      add(el, [{ transform: "scaleX(0)", offset: 0 }], { duration: 640, easing: EASE_OUT });
       break;
   }
   return out;
@@ -158,6 +161,7 @@ export function enterScreen(root: HTMLElement): Promise<void> {
   const delays = new Map<Element, number>();
 
   root.querySelectorAll<HTMLElement>("[data-a9]").forEach((el) => {
+    if (!el.getClientRects().length) return;
     const kind = el.dataset.a9 as A9Kind;
     if (!(kind in ENTER_TIMING)) return;
 
@@ -171,6 +175,9 @@ export function enterScreen(root: HTMLElement): Promise<void> {
 
     const parent = el.parentElement?.closest("[data-a9]");
     if (parent && root.contains(parent) && delays.has(parent)) delay = Math.max(delay, delays.get(parent)! + NESTED_DELAY);
+    // Large garages must finish in the same beat as small ones. Hidden panels do not
+    // consume stagger slots, and nested content cannot extend the sequence indefinitely.
+    delay = Math.min(delay, 580);
     delays.set(el, delay);
 
     animations.push(...enterElement(root, el, kind, delay));
@@ -193,12 +200,12 @@ export function exitScreen(root: HTMLElement): Promise<void> {
     return !parent || !root.contains(parent);
   });
 
-  targets.forEach((el) => {
+  targets.forEach((el, index) => {
     if (reduce) {
       add(el, [{ opacity: 1 }, { opacity: 0 }], { duration: 120 });
       return;
     }
-    const delay = Math.floor(Math.random() * 90);
+    const delay = Math.min(index * 12, 72);
     // Text is covered by the pink block again before it goes, like the original site
     if (el.dataset.a9 === "text") {
       const bar = el.querySelector(":scope > .a9-text__bar");
@@ -293,4 +300,14 @@ export function shake(el: HTMLElement) {
     ],
     { duration: 360, easing: "ease-out" },
   );
+}
+
+/** Scan boundaries are whole-screen fades, not the menu's staggered rebuild. */
+export function fadeScreen(root: HTMLElement, entering: boolean, duration = 420): Promise<void> {
+  cancelOwned(root);
+  const animation = track(root, root.animate(
+    [{ opacity: entering ? 0 : 1 }, { opacity: entering ? 1 : 0 }],
+    { duration: prefersReducedMotion() ? 100 : duration, easing: "ease-in-out", fill: entering ? "backwards" : "forwards" },
+  ));
+  return settle([animation]);
 }

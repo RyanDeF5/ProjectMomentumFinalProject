@@ -1,10 +1,11 @@
-import type { ReactNode, Ref } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode, type Ref } from "react";
+import { onTokenDropTest } from "../lib/notify";
 import { sfx } from "../audio/sfx";
 import type { ClockData } from "../lib/clock";
 import { formatTokens } from "../lib/numbers";
 import { useRollingNumber } from "../lib/useRollingNumber";
 import type { MarketState, TokenUsage } from "../lib/types";
-import { BackIcon, CalendarIcon, ClockIcon, GearIcon, HomeIcon } from "../ui/Icons";
+import { BackIcon, CalendarIcon, CandlesIcon, ClockIcon, GearIcon, HomeIcon } from "../ui/Icons";
 import { TokenIcon } from "../ui/TokenIcon";
 
 interface TopBarProps {
@@ -16,6 +17,30 @@ interface TopBarProps {
   onSettings?: () => void;
   usage: TokenUsage | null;
   onTokens?: () => void;
+  /** Stocks on the watchlist (the game's garage count); null until known */
+  garageCount: number | null;
+  onGarage?: () => void;
+}
+
+const DROP_GHOSTS = 4;
+// The count starts rolling as the incoming tokens reach the icon
+const ROLL_DELAY_MS = 380;
+
+/**
+ * A compact train of faint tokens arrives from the left at even intervals; the tile responds
+ * with a short blue wash at impact, synchronized with the rolling count.
+ */
+function TokenDrop() {
+  return (
+    <span className="token-drop" aria-hidden>
+      <span className="token-drop__wash" />
+      {Array.from({ length: DROP_GHOSTS }, (_, i) => (
+        <span key={i} className="token-drop__ghost" style={{ animationDelay: `${i * 60}ms` } as CSSProperties}>
+          <TokenIcon size={26} />
+        </span>
+      ))}
+    </span>
+  );
 }
 
 // The wide highlighted tile works like the game's SHOP / FREE PACK! / NEW OFFER! tile
@@ -38,10 +63,19 @@ function Tile({ order, className = "", children }: { order: number; className?: 
 
 /**
  * Top bar like the game's: tiles anchored to the right edge and running right to left
- * (gear/home, market status, date, clock, Legend tokens). New tiles go on the left end.
+ * (gear/home, market status, date, clock, Legend tokens, watchlist garage). New tiles go on the left end.
  */
-export function TopBar({ barRef, clock, hidden, onBack, onHome, onSettings, usage, onTokens }: TopBarProps) {
-  const tokens = useRollingNumber(usage ? usage.today.tokens : null);
+export function TopBar({ barRef, clock, hidden, onBack, onHome, onSettings, usage, onTokens, garageCount, onGarage }: TopBarProps) {
+  const today = usage ? usage.today.tokens : null;
+  const tokens = useRollingNumber(today, 1100, ROLL_DELAY_MS);
+  // Each increase (and the Settings test) plays the drop once
+  const [drops, setDrops] = useState(0);
+  const lastTokens = useRef(today);
+  useEffect(() => {
+    if (today !== null && lastTokens.current !== null && today > lastTokens.current) setDrops((n) => n + 1);
+    lastTokens.current = today;
+  }, [today]);
+  useEffect(() => onTokenDropTest(() => setDrops((n) => n + 1)), []);
   const shortDate = new Date().toLocaleString("en-US", { month: "short", day: "numeric" }).toUpperCase();
 
   return (
@@ -65,7 +99,23 @@ export function TopBar({ barRef, clock, hidden, onBack, onHome, onSettings, usag
       {/* Empty strip on the left; tiles are anchored to the right edge and run right to left */}
       <div className="topbar__space" />
 
-      {/* Legend tokens used today, like the game's A-token counter. New tiles are added on this end. */}
+      {/* Watchlist size, like the game's garage count (candlesticks for tickers). New tiles are added on this end. */}
+      <Tile order={5} className="topbar__garage">
+        <button
+          type="button"
+          aria-label={`Watchlist: ${garageCount ?? "unknown"} stocks. Open the watchlist`}
+          disabled={!onGarage}
+          onClick={() => {
+            sfx.play("click");
+            onGarage?.();
+          }}
+        >
+          <CandlesIcon size={26} />
+          <span className="topbar__num">{garageCount ?? "--"}</span>
+        </button>
+      </Tile>
+
+      {/* Legend tokens used today, like the game's A-token counter */}
       <Tile order={4} className={`topbar__tokens${tokens.rolling ? " is-rolling" : ""}`}>
         <button
           type="button"
@@ -85,6 +135,7 @@ export function TopBar({ barRef, clock, hidden, onBack, onHome, onSettings, usag
             +
           </span>
         </button>
+        {drops > 0 && <TokenDrop key={drops} />}
       </Tile>
 
       <Tile order={3} className="topbar__counter">

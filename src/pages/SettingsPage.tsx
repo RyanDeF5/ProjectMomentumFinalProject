@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type Ref } from "react";
+import { ExchangePreview } from "../components/ExchangePreview";
 import { sfx, useSfxMuted, useSfxVolume } from "../audio/sfx";
 import { fetchLegendStatus } from "../lib/api";
 import type { LegendStatus } from "../lib/types";
@@ -8,6 +9,8 @@ import { Chip } from "../ui/Chip";
 import { LegendEmblem } from "../ui/LegendEmblem";
 import { Reveal } from "../ui/Reveal";
 import { SectionTitle } from "../ui/SectionTitle";
+import { testNotification, testTokenDrop } from "../lib/notify";
+import { PHOTO_CREDITS } from "../lib/exchanges";
 import { Segmented } from "../ui/Segmented";
 import { Slider } from "../ui/Slider";
 
@@ -100,11 +103,13 @@ function LegendStatusCard({ active }: { active: boolean }) {
 /** Settings laid out like the game's SOUND & DISPLAY screen. No access control yet (testing only). */
 export function SettingsPage({ screenRef, active, dryRun, onDryRunChange }: SettingsPageProps) {
   const settings = useSettings();
+  const [preview, setPreview] = useState(false);
   const muted = useSfxMuted();
   const volume = useSfxVolume();
 
   return (
     <section className="screen screen--settings" ref={screenRef} hidden={!active} aria-label="Settings">
+      {preview && active && <ExchangePreview onClose={() => setPreview(false)} />}
       <div className="screen__bg screen__bg--menu" data-a9-bg aria-hidden />
 
       <div className="settings">
@@ -135,6 +140,45 @@ export function SettingsPage({ screenRef, active, dryRun, onDryRunChange }: Sett
               </Button>
             </Reveal>
           )}
+          {settings.devOptions && (
+            <Reveal kind="slide" wash="none" className="setting">
+              <SectionTitle as="h3" size="md">
+                TEST ANIMATIONS
+              </SectionTitle>
+              <div className="setting__buttons">
+                <Button variant="buy" sound={null} onClick={() => testNotification("bullish")}>
+                  BULLISH NEWS
+                </Button>
+                <Button variant="normal" sound={null} onClick={() => testNotification("class-up")}>
+                  RANKED UP
+                </Button>
+                <Button variant="normal" sound={null} onClick={testTokenDrop}>
+                  TOKEN DROP
+                </Button>
+                <Button variant="normal" sound={null} onClick={() => setPreview(true)}>
+                  EXCHANGE REVEAL
+                </Button>
+              </div>
+            </Reveal>
+          )}
+          <Reveal kind="slide" wash="none" className="setting setting--credits">
+            <SectionTitle as="h3" size="md">
+              PHOTO CREDITS
+            </SectionTitle>
+            <ul className="credits">
+              {PHOTO_CREDITS.map((c) => (
+                <li key={c.file}>
+                  <a href={c.url} target="_blank" rel="noopener noreferrer">
+                    {c.title}
+                  </a>{" "}
+                  · {c.author} ·{" "}
+                  <a href={c.licenseUrl} target="_blank" rel="noopener noreferrer">
+                    {c.license}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </Reveal>
         </div>
       </div>
     </section>

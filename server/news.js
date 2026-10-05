@@ -11,7 +11,7 @@ const MAX_ITEMS = 8;
 const ENRICH_COUNT = 5; // stories that get a summary fetched from the article page
 const CACHE_MS = 5 * 60_000;
 const TEST_TICKERS = new Set(["STCK", "TEST"]);
-const USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) ProjectMomentum/1.0";
+const USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) Alpha9Legends/1.0";
 
 const cache = new Map();
 
@@ -207,13 +207,14 @@ async function summarize(item) {
 /**
  * Recent news for a stock, most relevant first. Resolves to
  * { items, fetchedAt, sources: { yahoo, google }, note? } and never throws.
+ * `maxAgeMs` caps how old a cached result may be (watchlist updates ask for fresher news).
  */
-async function getNews(symbol, companyName) {
+async function getNews(symbol, companyName, { maxAgeMs = CACHE_MS } = {}) {
   const ticker = String(symbol || "").toUpperCase().trim();
   if (!ticker || TEST_TICKERS.has(ticker)) return { items: [], fetchedAt: new Date().toISOString(), sources: {}, note: "test ticker" };
 
   const cached = cache.get(ticker);
-  if (cached && Date.now() - cached.at < CACHE_MS) return cached.value;
+  if (cached && Date.now() - cached.at < Math.min(maxAgeMs, CACHE_MS)) return cached.value;
 
   const company = shortCompanyName(companyName);
   const sources = {};

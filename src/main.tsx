@@ -5,6 +5,8 @@ import "./styles/base.css";
 import "./styles/a9.css";
 import "./styles/ui.css";
 import "./styles/screens.css";
+import "./styles/watchlist.css";
+import "./styles/notifications.css";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

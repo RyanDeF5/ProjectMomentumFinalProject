@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { createPortal } from "react-dom";
-import type { Ref } from "react";
+import type { ComponentProps, Ref } from "react";
 import { LegendBanner } from "../components/LegendBanner";
 import { LegendPanel, ScoreBreakdown, type LegendState } from "../components/LegendPanel";
 import { NewsStrip, type NewsState } from "../components/NewsStrip";
 import { RankBlock } from "../components/RankBlock";
 import { StatRow } from "../components/StatRow";
+import { WatchControl } from "../components/WatchControl";
 import { compactFormatter } from "../lib/numbers";
 import type { StockData } from "../lib/types";
 import { useCountUp } from "../lib/useCountUp";
@@ -24,9 +25,11 @@ interface SummaryPageProps {
   legend: LegendState;
   news: NewsState;
   onBack: () => void;
+  /** The add-to-watchlist block */
+  watch: ComponentProps<typeof WatchControl>;
 }
 
-export function SummaryPage({ screenRef, active, stock, summaryRun, legend, news, onBack }: SummaryPageProps) {
+export function SummaryPage({ screenRef, active, stock, summaryRun, legend, news, onBack, watch }: SummaryPageProps) {
   const hasStock = summaryRun > 0;
   const [showBreakdown, setShowBreakdown] = useState(false);
   // Counters and the rank reveal restart each time the screen is shown
@@ -114,6 +117,10 @@ export function SummaryPage({ screenRef, active, stock, summaryRun, legend, news
         <div className="summary__right">
           <RankBlock legend={legend} revealKey={revealKey} onInfo={() => setShowBreakdown(true)} />
           <LegendPanel legend={legend} symbol={stock.symbol} />
+          {/* Under Legend's read, where the game's car screen has its PLAY corner */}
+          <Reveal kind="slide" wash="none" className="summary__watch">
+            <WatchControl {...watch} />
+          </Reveal>
         </div>
 
         <div className="summary__news">

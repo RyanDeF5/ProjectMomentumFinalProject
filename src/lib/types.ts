@@ -107,3 +107,81 @@ export interface TokenUsage {
   /** The server's current hour (0-23) */
   hour: number;
 }
+
+/** A stock on the watchlist (see server/watchlist.js) */
+export interface WatchItem {
+  symbol: string;
+  name: string;
+  /** Company website, for its logo */
+  domain: string | null;
+  addedAt: number;
+  /** When the last full update (quote, news, Legend) finished; null until the first */
+  updatedAt: number | null;
+  updates: number;
+  stock: StockData | null;
+  legend: LegendResponse | null;
+  news: NewsItem[];
+  /** The latest session's closing prices, for the card's chart */
+  spark: number[];
+  /** Score before the last update, to show which way it moved */
+  prevScore: number | null;
+  history: { t: number; score: number; price: number }[];
+  /** LEGEND OFFLINE or UPDATE FAILED when the last update failed (the card keeps its old data) */
+  error: string | null;
+  /** Fortune 500 rank and company when the stock is on the list (these get the gold cards) */
+  fortune500: { rank: number; company: string } | null;
+  /** Being updated right now */
+  updating: boolean;
+}
+
+export interface WatchSettings {
+  /** Seconds between each stock's updates; 0 pauses updates */
+  interval: number;
+  dryRun: boolean;
+}
+
+/** What the update loop is doing */
+export interface WatchEngine {
+  state: "offline" | "idle" | "updating" | "waiting" | "paused";
+  symbol: string | null;
+  nextAt: number | null;
+  /** Server clock when this was sent, to line countdowns up with this device's clock */
+  now?: number;
+}
+
+export interface WatchSnapshot {
+  items: WatchItem[];
+  settings: WatchSettings;
+  engine: WatchEngine;
+  limit: number;
+  intervals: number[];
+  now: number;
+}
+
+/** Something worth telling the user about, sent by the server as watchlist updates land */
+export type WatchAlert =
+  | {
+      id: string;
+      kind: "bullish";
+      symbol: string;
+      name: string;
+      at: number;
+      /** Headline of the newly bullish story (the first, if several) */
+      title: string;
+      publisher: string;
+      /** Legend's one-line read on why it matters */
+      impact: string;
+      /** How many more new bullish stories came with it */
+      more: number;
+    }
+  | {
+      id: string;
+      kind: "class-up";
+      symbol: string;
+      name: string;
+      at: number;
+      from: string;
+      to: string;
+      score: number;
+      delta: number;
+    };

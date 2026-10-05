@@ -3,60 +3,27 @@ const express = require("express");
 const cors = require("cors");
 const path = require("path");
 
-// YahooFinance Instances
-const YahooFinance = require('yahoo-finance2').default;
-const yahooFinance = new YahooFinance();
-
-// Legend AI (LM Studio) and its news retrieval
+// Market data, Legend AI (LM Studio) with its news retrieval, and the watchlist
+const { getQuote } = require("./quotes");
 const legend = require("./legend");
 const { getNews } = require("./news");
+const watchlist = require("./watchlist");
 
 const app = express();
 app.use(cors());
-app.use(express.json());
-
-// Init some variables 
-let livePrice;
+app.use(express.json({ limit: "1mb" }));
 
 app.post("/analyze", async (req, res) => {
   const { symbol, state } = req.body;
   if (!symbol) return res.status(400).json({ error: "Symbol required" });
 
   try {
-    const quote = await yahooFinance.quote(symbol.toUpperCase());
-
-    // Determine the "True" live price based on whether the market is open or in pre/post sessions
-    if (state === "PRE-MARKET"){livePrice = quote.preMarketPrice}
-    else if (state === "MARKET OPEN") {livePrice = quote.regularMarketPrice}
-    else {livePrice = quote.regularMarketPrice}
-
-    console.log(quote.preMarketPrice);
-
-    const summary = await yahooFinance.quoteSummary(symbol, { 
-      modules: [ "defaultKeyStatistics" ] 
-    });
-    const float = summary.defaultKeyStatistics?.floatShares;
-
-    res.json({
-      symbol: symbol.toUpperCase(),
-      fullName: quote.longName,
-      currentPrice: livePrice, 
-      lastClose: quote.regularMarketPreviousClose,
-      currentVolume: quote.regularMarketVolume,
-      averageVolume: quote.averageDailyVolume3Month,
-      float: float
-    });
-
-    console.log(`${symbol.toUpperCase()} 
-    fullName: ${quote.longName},
-    currentPrice: ${livePrice}, 
-    lastClose: ${quote.regularMarketPreviousClose},
-    currentVolume: ${quote.regularMarketVolume},
-    averageVolume: ${quote.averageDailyVolume3Month},
-    float: ${float}`);
-
+    // The price follows the session: pre-market price before the open, the regular price otherwise
+    const { domain: _domain, ...quote } = await getQuote(symbol, state);
+    res.json(quote);
+    console.log(`${quote.symbol} ${quote.fullName}: $${quote.currentPrice} (close ${quote.lastClose}), volume ${quote.currentVolume} / avg ${quote.averageVolume}, float ${quote.float}`);
   } catch (err) {
-    console.error("Yahoo Finance Error:", err);
+    console.error("Yahoo Finance Error:", err.message);
     res.status(500).json({ error: "Failed to fetch data" });
   }
 });
@@ -89,11 +56,16 @@ app.get("/favicon", async (req, res) => {
   }
 });
 
+// Scans run by hand take priority: the watchlist waits while one is using Legend
+let scansInProgress = 0;
+watchlist.setScanCheck(() => scansInProgress > 0);
+
 // Legend analysis of a stock's momentum setup, informed by its recent news
 app.post("/legend", async (req, res) => {
   const { stockData, marketState } = req.body;
   if (!stockData) return res.status(400).json({ error: "Stock data required" });
 
+  scansInProgress++;
   try {
     const news = Array.isArray(req.body.news) ? req.body.news : (await getNews(stockData.symbol, stockData.fullName)).items;
     const result = await legend.analyze(stockData, marketState, news);
@@ -102,6 +74,9 @@ app.post("/legend", async (req, res) => {
   } catch (err) {
     console.error("Legend Error:", err.message);
     res.status(502).json({ error: "Legend is not available", detail: err.message });
+  } finally {
+    scansInProgress--;
+    watchlist.poke();
   }
 });
 
@@ -123,6 +98,43 @@ app.get("/legend/usage", (req, res) => {
 // Connection check for the Settings screen
 app.get("/legend/status", async (req, res) => {
   res.json(await legend.status());
+});
+
+// Watchlist: saved stocks, kept fresh (quote, news, Legend) while the site is open
+app.get("/watchlist", (req, res) => res.json(watchlist.snapshot()));
+app.get("/watchlist/stream", (req, res) => watchlist.connect(req, res));
+
+app.post("/watchlist", async (req, res) => {
+  try {
+    const { symbol, snapshot } = req.body || {};
+    // A ticker typed on the watchlist screen (no scan behind it) must exist before it's added
+    if (!snapshot) {
+      try {
+        await getQuote(symbol);
+      } catch {
+        return res.status(404).json({ error: `${String(symbol || "").toUpperCase()} WAS NOT FOUND` });
+      }
+    }
+    res.status(201).json(watchlist.add(symbol, snapshot));
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+app.delete("/watchlist/:symbol", (req, res) => {
+  res.status(watchlist.remove(req.params.symbol) ? 204 : 404).end();
+});
+
+app.post("/watchlist/:symbol/refresh", (req, res) => {
+  res.status(watchlist.refresh(req.params.symbol) ? 202 : 404).end();
+});
+
+app.put("/watchlist/settings", (req, res) => {
+  try {
+    res.json(watchlist.updateSettings(req.body || {}));
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
 });
 
 // Serve the built React site (npm run build) from the same origin as the API

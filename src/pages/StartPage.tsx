@@ -4,14 +4,16 @@ import { sfx } from "../audio/sfx";
 import { Field } from "../components/Field";
 import type { LegendState } from "../components/LegendPanel";
 import { LastScanCard } from "../components/LastScanCard";
-import { ModeBar } from "../components/ModeBar";
+import { WatchRail } from "../components/WatchRail";
 import { NumberField } from "../components/NumberField";
 import type { ClockData } from "../lib/clock";
 import { getRandomInt, parseNumber } from "../lib/numbers";
 import { useSettings } from "../lib/settings";
-import type { StockData } from "../lib/types";
+import type { StockData, WatchItem } from "../lib/types";
+import type { Watchlist } from "../lib/watchlist";
 import { Button } from "../ui/Button";
 import { Chip } from "../ui/Chip";
+import { Glint } from "../ui/Glint";
 import { SearchIcon, TimerIcon } from "../ui/Icons";
 import { Reveal } from "../ui/Reveal";
 import { RevealText } from "../ui/RevealText";
@@ -31,6 +33,9 @@ interface StartPageProps {
   /** The most recent scan, shown as a card in the top-left corner */
   lastScan: { stock: StockData; legend: LegendState } | null;
   onOpenLastScan: () => void;
+  watchlist: Watchlist;
+  onOpenWatchItem: (item: WatchItem) => void;
+  onOpenWatchlist: () => void;
 }
 
 const emptyManualFields = {
@@ -64,6 +69,9 @@ export function StartPage({
   onDryRunChange,
   lastScan,
   onOpenLastScan,
+  watchlist,
+  onOpenWatchItem,
+  onOpenWatchlist,
 }: StartPageProps) {
   const settings = useSettings();
   const [superSymbol, setSuperSymbol] = useState("");
@@ -142,30 +150,35 @@ export function StartPage({
 
       <div className="home">
         <div className="home__main">
-          <div className="home__corner">
-            <div className="hero__tags">
-              <Reveal kind="pop">
-                <Chip tone="pink" size="lg">
-                  01
-                </Chip>
-              </Reveal>
-              <Reveal kind="panel">
-                <Chip tone="white" size="lg">
-                  MARKET SCANNER
-                </Chip>
-              </Reveal>
+          <div className="home__side">
+            <div className="home__corner">
+              <div className="hero__tags">
+                <Reveal kind="pop">
+                  <Chip tone="pink" size="lg">
+                    01
+                  </Chip>
+                </Reveal>
+                <Reveal kind="panel">
+                  <Chip tone="white" size="lg">
+                    MARKET SCANNER
+                  </Chip>
+                </Reveal>
+              </div>
+              {lastScan && (
+                <Reveal kind="slide" wash="none">
+                  <LastScanCard stock={lastScan.stock} legend={lastScan.legend} onOpen={onOpenLastScan} />
+                </Reveal>
+              )}
             </div>
-            {lastScan && (
-              <Reveal kind="slide" wash="none">
-                <LastScanCard stock={lastScan.stock} legend={lastScan.legend} onOpen={onOpenLastScan} />
-              </Reveal>
-            )}
+            <Reveal kind="slide" wash="none" className="home__rail">
+              <WatchRail watchlist={watchlist} onOpenItem={onOpenWatchItem} onOpenWatchlist={onOpenWatchlist} />
+            </Reveal>
           </div>
 
           <div className="home__center">
             <p className="hero__welcome">
               <RevealText dir="rtl">
-                WELCOME TO PROJECT <span className="pink">MOMENTUM</span>
+                WELCOME TO ALPHA 9: <span className="pink">LEGENDS</span>
               </RevealText>
             </p>
             <h1 className="hero__title">
@@ -243,6 +256,7 @@ export function StartPage({
               </Field>
               <Button type="submit" variant="buy" size="lg" sound={null} disabled={!buyButtonsEnabled} className="scan__submit">
                 SUBMIT
+                {clock.marketState !== "MARKET CLOSED" && <Glint idle />}
               </Button>
             </form>
           </Reveal>
@@ -325,7 +339,6 @@ export function StartPage({
         </aside>
       </div>
 
-      <ModeBar />
     </section>
   );
 }

@@ -50,6 +50,13 @@
   font-weight: 700;
   font-display: swap;
 }
+/* Wide extended caps for the logo wordmark (SIL OFL, see /fonts/Michroma-OFL.txt) */
+@font-face {
+  font-family: "Michroma";
+  src: url("/fonts/Michroma-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-display: swap;
+}
 
 *,
 *::before,

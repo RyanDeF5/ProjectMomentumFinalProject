@@ -2,7 +2,7 @@
 module.exports = {
   apps: [
     {
-      name: "project-momentum",
+      name: "alpha-9-legends",
       cwd: `${__dirname}/server`,
       script: "server.js",
       env: {

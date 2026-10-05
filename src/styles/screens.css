@@ -124,20 +124,13 @@
   color: var(--a9-dim);
 }
 /* While the counter rolls up: the token bobs and the "+" glows */
-.topbar__tokens.is-rolling .token-icon {
-  animation: token-bob 0.45s ease-in-out infinite alternate;
-}
 .topbar__tokens.is-rolling .topbar__plus {
   text-shadow: 0 0 10px rgba(195, 251, 18, 0.9);
 }
 .topbar__tokens.is-rolling .topbar__tokens-value {
   color: var(--a9-lime);
 }
-@keyframes token-bob {
-  to {
-    transform: translateY(-2px) scale(1.12);
-  }
-}
+
 .topbar__plus {
   font-size: 32px;
   font-weight: 500;
@@ -171,10 +164,14 @@
 }
 
 /* ---------- Screens ---------- */
+.app {
+  --modes-h: 0px;
+  padding-bottom: var(--modes-h);
+}
 .screen {
   position: relative;
   isolation: isolate;
-  min-height: 100vh;
+  min-height: calc(100dvh - var(--modes-h));
   padding: calc(var(--topbar-h) + 44px) clamp(16px, 4vw, 56px) 48px;
   overflow: hidden;
 }
@@ -198,10 +195,9 @@
   inset: 0;
   background: repeating-linear-gradient(112deg, transparent 0 260px, rgba(52, 236, 250, 0.05) 260px 261px);
 }
+/* The grid lines come from the loading screen's squares (.lgrid) */
 .screen__bg--loading {
   background:
-    linear-gradient(rgba(255, 255, 255, 0.045) 1px, transparent 1px) 0 0 / 100% 25%,
-    linear-gradient(90deg, rgba(255, 255, 255, 0.045) 1px, transparent 1px) 0 0 / 12.5% 100%,
     linear-gradient(180deg, rgba(10, 8, 24, 0.35), rgba(5, 5, 14, 0.8)),
     url("/images/bg/loading-map.jpg") center / cover;
 }
@@ -210,13 +206,13 @@
 .screen--start {
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  height: calc(100dvh - var(--modes-h));
   padding: var(--topbar-h) 0 0;
 }
 @media (max-height: 520px) {
   .screen--start {
     height: auto;
-    min-height: 100vh;
+    min-height: calc(100dvh - var(--modes-h));
   }
   .home__pane {
     overflow: visible;
@@ -228,13 +224,21 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr) clamp(360px, 31vw, 470px);
 }
-/* Corner block in the flow on top, the greeting centered in the space below: nothing can overlap */
+/* Left column: the corner block, then the watchlist filling the height below it. The greeting is
+   centered in its own column and sized to that column, so nothing can overlap */
 .home__main {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: clamp(250px, 21vw, 320px) minmax(0, 1fr);
+  gap: clamp(12px, 2vw, 32px);
+  padding: clamp(12px, 3.5vh, 24px) clamp(16px, 3vw, 48px);
+  overflow: hidden;
+}
+.home__side {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  padding: clamp(12px, 3.5vh, 24px) clamp(16px, 3vw, 48px);
-  overflow: hidden;
+  gap: clamp(10px, 2vh, 16px);
 }
 .home__corner {
   display: flex;
@@ -242,8 +246,12 @@
   align-items: flex-start;
   gap: clamp(8px, 2vh, 16px);
 }
-.home__center {
+.home__rail {
   flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.home__center {
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -251,24 +259,25 @@
   justify-content: center;
   text-align: center;
   padding-top: clamp(4px, 2vh, 16px);
+  container-type: inline-size;
 }
 .hero__tags {
   display: flex;
   gap: 6px;
 }
 .hero__welcome {
-  font-size: clamp(15px, min(2vw, 3.6vh), 26px);
+  font-size: clamp(15px, min(3.2cqi, 3.6vh), 26px);
   font-weight: 700;
   letter-spacing: 0.04em;
 }
 .hero__title {
   margin: clamp(2px, 1vh, 6px) 0 clamp(4px, 1.4vh, 10px);
-  font-size: clamp(34px, min(6.6vw, 11.5vh), 100px);
+  font-size: clamp(30px, min(10.5cqi, 11.5vh), 100px);
   font-weight: 700;
   line-height: 0.92;
 }
 .hero__date {
-  font-size: clamp(13px, min(1.5vw, 2.8vh), 20px);
+  font-size: clamp(12px, min(2.5cqi, 2.8vh), 20px);
   color: var(--a9-dim);
   letter-spacing: 0.03em;
 }
@@ -290,7 +299,7 @@
   font-weight: 700;
 }
 .hud__big {
-  font-size: clamp(52px, min(10vw, 17vh), 144px);
+  font-size: clamp(48px, min(17cqi, 17vh), 144px);
   font-weight: 700;
   display: inline-block;
   transform: skewX(-10deg);
@@ -500,19 +509,35 @@
   text-align: center;
 }
 
-/* ---------- Home-screen mode tiles ---------- */
+/* ---------- Persistent mode tiles ---------- */
 /* Full-width dark bar along the bottom, like the game's home screen */
 .modes {
+  position: fixed;
+  inset: auto 0 0;
+  z-index: 40;
   flex: none;
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: clamp(10px, 1.4vw, 18px);
   padding: clamp(12px, 2.4vh, 18px) clamp(16px, 3vw, 48px) clamp(12px, 2.6vh, 20px);
-  background: #110f1e;
+  background: var(--a9-menu);
   border-top: 2px solid #1a506e;
+  padding-bottom: calc(clamp(12px, 2.6vh, 20px) + env(safe-area-inset-bottom, 0px));
+  transition:
+    transform 0.32s var(--ease-out),
+    visibility 0s;
+}
+/* Off the home screen and watchlist: slides down out of the window */
+.modes.is-hidden {
+  transform: translateY(calc(100% + 4px));
+  visibility: hidden;
+  transition:
+    transform 0.24s ease-in,
+    visibility 0s 0.24s;
 }
 .mode {
   position: relative;
+  border: 0;
   display: flex;
   flex-direction: column;
   align-items: flex-end;
@@ -579,7 +604,7 @@
 .loading {
   position: relative;
   max-width: 1400px;
-  min-height: calc(100vh - 96px);
+  min-height: calc(100dvh - var(--modes-h) - 96px);
   margin: 0 auto;
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
@@ -596,6 +621,7 @@
   display: inline-block;
   margin-bottom: 30px;
 }
+.loading__info { padding-bottom: 64px; }
 .loading__steps ul {
   display: grid;
   gap: 10px;
@@ -636,35 +662,6 @@
 }
 .step.is-failed {
   color: var(--a9-pink);
-}
-.loading__mosaic {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  grid-template-rows: repeat(3, 1fr);
-  aspect-ratio: 4 / 3;
-  gap: 2px;
-}
-.mosaic__tile {
-  overflow: hidden;
-}
-.mosaic__tile--photo {
-  background-image: url("/images/bg/menu-map.jpg");
-  background-size: 400% 300%;
-  filter: brightness(1.7) saturate(1.3) contrast(1.1);
-}
-.mosaic__tile--dim {
-  background: rgba(255, 255, 255, 0.05);
-}
-.mosaic__tile--pink {
-  background: var(--a9-pink);
-}
-.mosaic__tile--letter {
-  display: grid;
-  place-items: center;
-  background: #fff;
-  color: var(--a9-dark);
-  font-size: clamp(56px, 8vw, 130px);
-  font-weight: 700;
 }
 .loading__indicator {
   position: absolute;
@@ -916,12 +913,27 @@
   outline: none;
 }
 /* Full-bleed background (the game uses a car photo here) */
+/* Wall Street, looking down to the NYSE: the street scene the game's title card puts its car in */
 .splash__bg {
   position: absolute;
   inset: 0;
+  overflow: hidden;
+  background: #0b0f1c;
+}
+.splash__bg::before {
+  content: "";
+  position: absolute;
+  inset: -12px;
+  background: url("/images/bg/splash-wall-street.jpg") 50% 62% / cover;
+  filter: blur(3px) saturate(1.15) brightness(0.78);
+}
+.splash__bg::after {
+  content: "";
+  position: absolute;
+  inset: 0;
   background:
-    linear-gradient(180deg, rgba(4, 10, 24, 0.1) 0%, rgba(4, 10, 24, 0.3) 55%, rgba(4, 10, 24, 0.75) 100%),
-    url("/images/bg/menu-map.jpg") center / cover;
+    linear-gradient(180deg, rgba(6, 10, 24, 0.1) 0%, rgba(6, 10, 24, 0.05) 45%, rgba(6, 10, 24, 0.7) 100%),
+    radial-gradient(ellipse 70% 60% at 50% 40%, transparent 40%, rgba(6, 10, 24, 0.45) 100%);
 }
 /* Stripes in the top-right corner, as on the title screen */
 .splash__stripes {
@@ -954,32 +966,17 @@
   -webkit-mask-image: linear-gradient(180deg, #000 45%, transparent 95%);
   mask-image: linear-gradient(180deg, #000 45%, transparent 95%);
 }
+/* Logo low and centered, as on the game's title card */
 .splash__brand {
   position: absolute;
   left: 0;
   right: 0;
-  top: 52%;
+  bottom: 7vh;
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
+  justify-content: center;
 }
-.splash__project {
-  font-size: clamp(56px, 8vw, 118px);
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  padding-left: 0.1em;
-  line-height: 0.95;
-  text-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
-}
-.splash__momentum {
-  margin-top: 6px;
-  font-size: clamp(22px, 2.8vw, 42px);
-  font-weight: 700;
-  letter-spacing: 0.5em;
-  padding-left: 0.5em;
-  color: var(--a9-pink);
-  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.5);
+.splash__logo {
+  font-size: clamp(30px, min(8vw, 9.6vh), 130px);
 }
 .splash__corner {
   position: absolute;
@@ -1007,6 +1004,11 @@
 
 /* ---------- Smaller screens ---------- */
 @media (max-width: 1100px) {
+  /* Keep the tiles clear of the back triangle: a narrower status tile, then no date tile */
+  .topbar__status {
+    width: 220px;
+    font-size: 20px;
+  }
   .summary {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     grid-template-areas:
@@ -1022,21 +1024,29 @@
   }
 }
 
+@media (max-width: 980px) {
+  .topbar__date {
+    display: none;
+  }
+}
+
 @media (max-width: 900px) {
   /* Stack the home screen and let the page scroll */
   .screen--start {
     height: auto;
-    min-height: 100vh;
+    min-height: calc(100dvh - var(--modes-h));
   }
   .home {
     grid-template-columns: minmax(0, 1fr);
   }
   .home__main {
-    flex-direction: column;
-    align-items: stretch;
+    grid-template-columns: minmax(0, 1fr);
   }
   .home__corner {
     position: static;
+  }
+  .home__rail {
+    max-height: 380px;
   }
   .home__center {
     padding-top: 28px;
@@ -1046,14 +1056,15 @@
     padding: 8px 16px 28px;
   }
   .modes {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: none;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(150px, 1fr);
+    overflow-x: auto;
+    scrollbar-width: none;
   }
   .loading {
     grid-template-columns: minmax(0, 1fr);
     align-content: center;
-  }
-  .loading__mosaic {
-    max-width: 520px;
   }
   .summary {
     grid-template-columns: minmax(0, 1fr);
@@ -1115,10 +1126,10 @@
     overflow-x: auto;
     scroll-snap-type: x mandatory;
     scrollbar-width: none;
-    padding: 20px 16px;
+    padding: 16px 16px calc(16px + env(safe-area-inset-bottom, 0px));
   }
   .mode {
-    min-height: 80px;
+    min-height: 60px;
     scroll-snap-align: start;
   }
   .loading__indicator {
@@ -1173,7 +1184,6 @@
 
 /* Slanted HUD numbers: Rajdhani has no italic, and browser-faked italics get clipped (Safari),
    so the slant is a skew transform on an inner element */
-.mosaic__tile--letter span,
 .price-hud__change .skew {
   display: inline-block;
   transform: skewX(-10deg);
@@ -2071,11 +2081,6 @@
 
 /* ---------- Short windows (laptops with browser chrome) ---------- */
 @media (max-height: 760px) {
-  .home__corner {
-    flex-direction: row;
-    align-items: center;
-    gap: 14px;
-  }
   .lastscan__class {
     width: 48px;
     height: 48px;
@@ -2206,4 +2211,297 @@
     color: var(--a9-dim);
     background: none;
   }
+}
+
+/* Settings: dev test buttons and photo credits */
+.setting__buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.setting--credits {
+  grid-column: 1 / -1;
+}
+.credits {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+  font-size: 14px;
+  letter-spacing: 0.04em;
+  color: var(--a9-dim);
+}
+.credits a {
+  color: #fff;
+  text-decoration: underline;
+  text-decoration-color: rgba(255, 255, 255, 0.35);
+  text-underline-offset: 3px;
+}
+
+/* ---------- Top bar: watchlist count (candlesticks), in the spot of the game's garage car count ---------- */
+.topbar__garage {
+  width: 124px;
+  padding: 0;
+}
+.topbar__garage button {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 12px;
+  border: 0;
+  background: transparent;
+  color: #fff;
+  font: inherit;
+  cursor: inherit;
+}
+.topbar__garage button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+}
+.topbar__garage button:disabled {
+  cursor: default;
+}
+.topbar__garage svg {
+  color: #e9eef6;
+  filter: drop-shadow(0 1px 0 rgba(0, 0, 0, 0.4));
+}
+
+/* ---------- Token drop, after the game's A-token animation ---------- */
+.token-drop {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+/* The reference's compact train arrives first; the tile responds at impact. */
+.token-drop__wash {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, #a6cfff, #668dcc 70%, transparent);
+  opacity: 0;
+  animation: token-wash 720ms ease-out 280ms both;
+}
+@keyframes token-wash {
+  0% { opacity: 0; }
+  16% { opacity: 0.65; }
+  100% { opacity: 0; }
+}
+.token-drop__ghost {
+  position: absolute;
+  left: 13px;
+  top: 50%;
+  width: 26px;
+  height: 26px;
+  margin-top: -13px;
+  opacity: 0;
+  transform-origin: center;
+  animation: token-ghost 460ms cubic-bezier(0.22, 0.55, 0.38, 1) both;
+}
+@keyframes token-ghost {
+  0% { opacity: 0; transform: translate3d(-170px, 0, 0) scale(1.45); }
+  15% { opacity: 0.32; }
+  65% { opacity: 0.52; }
+  100% { opacity: 0; transform: translate3d(0, 0, 0) scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .token-drop {
+    display: none;
+  }
+}
+
+/* Top bar widths with the garage tile: keep every tile clear of the back triangle */
+@media (max-width: 1200px) {
+  .topbar__status {
+    width: 220px;
+    font-size: 20px;
+  }
+}
+@media (max-width: 1080px) {
+  .topbar__date {
+    display: none;
+  }
+}
+@media (max-width: 900px) {
+  .topbar__counter {
+    display: none;
+  }
+}
+@media (max-width: 560px) {
+  .topbar__garage {
+    display: none;
+  }
+}
+
+/* ---------- Loading: full-screen grid of big squares, after the game's pre-race screen ---------- */
+.loading__exchange {
+  animation: none;
+}
+.loading__exchange .a9-chip {
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.35);
+}
+.screen--loading .loading {
+  z-index: 1;
+}
+.lgrid {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+/* The exchange's building, under every square */
+.lgrid__photo {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-repeat: no-repeat;
+  filter: saturate(0.9);
+}
+.lgrid__cell {
+  position: absolute;
+  width: var(--sq);
+  height: var(--sq);
+}
+/* Faint grid lines, still there once the photo fills the screen */
+.lgrid__cell::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  box-shadow: inset 1px 1px rgba(255, 255, 255, 0.055);
+}
+/* A single viewport-sized texture sampled by cell coordinates, without fixed-background repaints. */
+.lgrid__cover {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(180deg, rgba(10, 8, 24, 0.35), rgba(5, 5, 14, 0.8)),
+    url("/images/bg/loading-map.jpg");
+  background-size: var(--grid-w) var(--grid-h), var(--grid-w) var(--grid-h);
+  background-position: var(--cx) var(--cy);
+}
+/* The block: map squares, dim squares, the ticker letters and the pink square */
+.lgrid__cell:is(.is-photo, .is-dim, .is-letter, .is-pink) .lgrid__cover {
+  inset: 0;
+}
+.lgrid__cell.is-photo .lgrid__cover {
+  background: url("/images/bg/menu-map.jpg") var(--mx) var(--my) / calc(var(--sq) * 4) calc(var(--sq) * 3);
+  filter: brightness(1.7) saturate(1.3) contrast(1.1);
+}
+.lgrid__cell.is-dim .lgrid__cover {
+  filter: brightness(1.12);
+}
+.lgrid__cell.is-pink .lgrid__cover {
+  background: var(--a9-pink);
+}
+.lgrid__cell.is-letter .lgrid__cover {
+  display: grid;
+  place-items: center;
+  background: #fff;
+  color: var(--a9-dark);
+  font-size: calc(var(--sq) * 0.6);
+  font-weight: 700;
+  line-height: 1;
+}
+.lgrid__letter {
+  display: inline-block;
+  transform: skewX(-10deg);
+}
+/* Revealing a square: its cover clears while it flashes bright, then the photo settles in */
+.lgrid__cell.is-open .lgrid__cover {
+  animation: lgrid-open 360ms cubic-bezier(0.2, 0.6, 0.3, 1) var(--d) both;
+}
+.lgrid__cell.is-open::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: #c9cfdb;
+  opacity: 0;
+  animation: lgrid-flash 480ms ease-out var(--d) both;
+}
+@keyframes lgrid-open {
+  from { opacity: 1; }
+  to {
+    opacity: 0;
+  }
+}
+@keyframes lgrid-flash {
+  0% {
+    opacity: 0;
+  }
+  22% {
+    opacity: 0.28;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+/* Finale: the words fade, leaving only the photo */
+.screen--loading.is-finale .loading {
+  animation: loading-words-out 0.3s ease-in forwards;
+}
+@keyframes loading-words-out {
+  to {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lgrid__cell.is-open .lgrid__cover,
+  .lgrid__cell.is-open::before {
+    animation-duration: 0.01s;
+    animation-delay: 0s;
+  }
+  .screen--loading.is-finale .loading { animation-duration: 0.01s; }
+}
+
+/* Native modal preview: replay the same loading sequence without a scan. */
+.exchange-preview {
+  --modes-h: 0px;
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100dvh;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: var(--a9-menu);
+  color: var(--a9-white);
+  overflow: auto;
+}
+.exchange-preview__controls {
+  position: fixed;
+  z-index: 3;
+  bottom: max(16px, env(safe-area-inset-bottom));
+  left: 16px;
+  right: 16px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.exchange-preview__controls > span {
+  background: var(--a9-menu);
+  padding: 8px 12px;
+  font-size: 13px;
+  letter-spacing: 0.08em;
+}
+@media (max-width: 560px) {
+  .exchange-preview__controls .a9-btn { padding: 8px 12px; font-size: 15px; min-height: 36px; }
+  .exchange-preview__controls > span { flex-basis: 100%; }
+}
+
+.exchange-preview .loading__indicator,
+.exchange-preview .loading__corner { bottom: 76px; }
+
+/* The outgoing loading surface remains above the results during their crossfade. */
+.screen--loading.is-departing {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  pointer-events: none;
 }

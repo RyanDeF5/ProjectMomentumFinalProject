@@ -1,28 +1,40 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
-import { enterScreen, enterTopBar, exitScreen, exitTopBar } from "./animation/a9";
+import { enterScreen, enterTopBar, exitScreen, exitTopBar, fadeScreen } from "./animation/a9";
 import { sfx, type SfxName } from "./audio/sfx";
 import type { LegendState } from "./components/LegendPanel";
+import { ModeBar } from "./components/ModeBar";
+import { Notifications } from "./components/Notifications";
 import { TopBar } from "./components/TopBar";
 import { analyzeWithLegend, exampleLegendAnalysis, fetchNews, fetchStockData, fetchTokenUsage } from "./lib/api";
 import { useClock } from "./lib/clock";
 import { markTitleScreenSeen, shouldShowTitleScreen } from "./lib/settings";
-import type { NewsItem, StockData, TokenUsage } from "./lib/types";
+import type { NewsItem, StockData, TokenUsage, WatchItem } from "./lib/types";
+import { addToWatchlist, removeFromWatchlist, updateWatchSettings, useWatchlist } from "./lib/watchlist";
 import { LoadingPage, type LoadingSteps } from "./pages/LoadingPage";
 import type { NewsState } from "./components/NewsStrip";
 import { SettingsPage } from "./pages/SettingsPage";
 import { TokensPage } from "./pages/TokensPage";
+import { WatchlistPage } from "./pages/WatchlistPage";
 import { Splash } from "./pages/Splash";
 import { StartPage } from "./pages/StartPage";
 import { SummaryPage } from "./pages/SummaryPage";
 import { Dialog } from "./ui/Dialog";
 
-type Screen = "start" | "loading" | "summary" | "settings" | "tokens";
+type Screen = "start" | "loading" | "summary" | "settings" | "tokens" | "watchlist";
+
+// The bottom mode bar belongs to the home screen and the watchlist: it stays put while you move
+// between them, and steps aside on every other screen
+const MODE_BAR_SCREENS: ReadonlySet<Screen> = new Set(["start", "watchlist"]);
 
 // Keep the loading screen up long enough to read, like the game's pre-race screen
 const MIN_LOADING_MS = 1400;
 const STEP_DONE_PAUSE_MS = 450;
+// The loading screen's finale: the words fade and the exchange photo fills the screen
+const LOADING_FINALE_MS = 1650;
 const USAGE_REFRESH_MS = 60_000;
+// Watchlist updates spend tokens; pick them up soon after, but not on every single update
+const USAGE_AFTER_UPDATE_MS = 2_500;
 
 const placeholderStock: StockData = {
   symbol: "STCK",
@@ -45,9 +57,16 @@ export default function App() {
   const [screen, setScreen] = useState<Screen>("start");
   const [showSplash, setShowSplash] = useState(showTitleScreenOnLoad);
   const [buyButtonsEnabled, setBuyButtonsEnabled] = useState(true);
+  const [scanInProgress, setScanInProgress] = useState(false);
+  const [modeBarShown, setModeBarShown] = useState(true);
+  const modeBarFaded = useRef(false);
   const [dryRun, setDryRun] = useState(false);
   const [stock, setStock] = useState(placeholderStock);
   const [loadingSymbol, setLoadingSymbol] = useState("");
+  const [loadingDeparting, setLoadingDeparting] = useState(false);
+  const [loadingExchange, setLoadingExchange] = useState<{ code: string | null; name: string | null } | null>(null);
+  const [loadingFinale, setLoadingFinale] = useState(false);
+  const loadingExchangeRef = useRef<string | null>(null);
   const [steps, setSteps] = useState<LoadingSteps>({ quote: "pending", news: "pending", legend: "pending" });
   const [news, setNews] = useState<NewsState>({ status: "idle", items: [] });
   const [summaryRun, setSummaryRun] = useState(0);
@@ -63,15 +82,33 @@ export default function App() {
     summary: useRef<HTMLElement>(null),
     settings: useRef<HTMLElement>(null),
     tokens: useRef<HTMLElement>(null),
+    watchlist: useRef<HTMLElement>(null),
   };
   // Where Settings/Tokens were opened from, so Back returns there
   const returnTo = useRef<Screen>("start");
+  // Where the summary was opened from (a scan, the home watchlist or the watchlist screen)
+  const summaryFrom = useRef<Screen>("start");
+  const usageTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const screenRef = useRef<Screen>("start");
   const navQueue = useRef<Promise<void>>(Promise.resolve());
   const queuedTarget = useRef<Screen | null>(null);
   const legendRequestRef = useRef(0);
 
   useEffect(() => sfx.preload(), []);
+
+  // Live watchlist; each finished update spent tokens, so the top bar counter follows along
+  const watchlist = useWatchlist((item) => {
+    if (!item.legend?.tokens || usageTimer.current) return;
+    usageTimer.current = setTimeout(() => {
+      usageTimer.current = null;
+      refreshUsage();
+    }, USAGE_AFTER_UPDATE_MS);
+  });
+
+  // Watchlist updates follow the LEGEND DRY RUN setting too
+  useEffect(() => {
+    updateWatchSettings({ dryRun }).catch((err) => console.error("Watchlist settings:", err));
+  }, [dryRun]);
 
   function refreshUsage() {
     fetchTokenUsage()
@@ -113,18 +150,47 @@ export default function App() {
       }
       if (sound) sfx.play(sound);
 
+      // Leaving the bar's screens: it slides away with the old screen; it returns with the new one
+      const barAfter = MODE_BAR_SCREENS.has(target);
+      if (!barAfter && target !== "loading") setModeBarShown(false);
+
       const bar = topBarRef.current;
       const fromEl = screenRefs[from].current;
-      await Promise.all([fromEl && exitScreen(fromEl), bar && from !== "loading" && exitTopBar(bar)]);
+      const modes = fromEl?.closest(".app")?.querySelector<HTMLElement>(".modes");
+      if (target === "loading") {
+        await Promise.all([fromEl && fadeScreen(fromEl, false, 260), bar && fadeScreen(bar, false, 260), modes && fadeScreen(modes, false, 260)]);
+        // Keep the bar faded while it hides; restore only when returning to its screens.
+        modeBarFaded.current = true;
+      } else if (from !== "loading") {
+        await Promise.all([fromEl && exitScreen(fromEl), bar && exitTopBar(bar)]);
+      }
 
       screenRef.current = target;
-      flushSync(() => setScreen(target));
+      flushSync(() => {
+        setLoadingDeparting(from === "loading");
+        if (target === "loading") setModeBarShown(false);
+        setScreen(target);
+        if (barAfter) setModeBarShown(true);
+      });
       window.scrollTo(0, 0);
+      if (barAfter && modeBarFaded.current && modes) {
+        void fadeScreen(modes, true, 200);
+        modeBarFaded.current = false;
+      }
 
-      if (bar && target !== "loading") void enterTopBar(bar);
+      if (bar && target !== "loading") void (from === "loading" ? fadeScreen(bar, true, 650) : enterTopBar(bar));
       const toEl = screenRefs[target].current;
       if (queuedTarget.current === target) queuedTarget.current = null;
-      if (toEl) await enterScreen(toEl);
+      if (from === "loading") {
+        // Keep the actual photo mounted over the results until the crossfade finishes.
+        try {
+          await Promise.all([fromEl && fadeScreen(fromEl, false, 700), toEl && fadeScreen(toEl, true, 700)]);
+        } finally {
+          setLoadingDeparting(false);
+        }
+      } else if (toEl) {
+        await (target === "loading" ? fadeScreen(toEl, true, 420) : enterScreen(toEl));
+      }
     });
     return navQueue.current;
   }
@@ -152,8 +218,12 @@ export default function App() {
    * plays its reveal with the final score and readout. Manual (dev) entries pass the stock directly.
    */
   async function scan(symbol: string, load: (() => Promise<StockData>) | StockData) {
+    setScanInProgress(true);
     setBuyButtonsEnabled(false);
     setLoadingSymbol(symbol.toUpperCase());
+    setLoadingExchange(null);
+    setLoadingFinale(false);
+    loadingExchangeRef.current = null;
     const manual = typeof load !== "function";
     const quoteDone = manual ? "skipped" : "done";
     setSteps({ quote: manual ? "skipped" : "active", news: "pending", legend: "pending" });
@@ -169,6 +239,7 @@ export default function App() {
       await toLoading;
       stopRace();
       await navigate("start", "switch");
+      setScanInProgress(false);
       setBuyButtonsEnabled(true);
       const code = err instanceof Error ? (err.message.match(/\d{3}/)?.[0] ?? "0") : "0";
       setError({
@@ -197,16 +268,26 @@ export default function App() {
 
     // Let the completed steps register before the summary takes over
     await Promise.all([toLoading, minimum, wait(STEP_DONE_PAUSE_MS)]);
+    // Like the game before a race: the words fade and the exchange's photo fills the screen
+    if (!manual && loadingExchangeRef.current) {
+      setLoadingFinale(true);
+      await wait(LOADING_FINALE_MS);
+    }
     setStock(stockData);
     setSummaryRun((run) => run + 1);
+    summaryFrom.current = "start";
     await navigate("summary");
     // Pick up the tokens this scan used now that the top bar is back, so the counter rolls up in view
+    setScanInProgress(false);
     if (analyzed) refreshUsage();
   }
 
   function superCalculate(symbol: string, volumeFromField: number) {
     void scan(symbol, async () => {
       const data = await fetchStockData(symbol, clock.marketState);
+      // The loading screen shows the exchange's building as soon as the quote is in
+      setLoadingExchange({ code: data.exchange, name: data.exchangeName });
+      loadingExchangeRef.current = data.exchange || data.exchangeName;
       return {
         symbol: data.symbol ?? symbol.toUpperCase(),
         fullName: data.fullName,
@@ -219,8 +300,24 @@ export default function App() {
     });
   }
 
+  /** Open a watched stock's latest analysis on the summary screen. */
+  function openWatchItem(item: WatchItem) {
+    if (!item.stock || !item.legend) return;
+    legendRequestRef.current++;
+    setStock(item.stock);
+    setLegend({ status: "done", response: item.legend });
+    setNews({ status: "done", items: item.news });
+    setSummaryRun((run) => run + 1);
+    summaryFrom.current = screen === "watchlist" ? "watchlist" : "start";
+    void navigate("summary", "switch");
+  }
+
+  function openWatchlist() {
+    void navigate("watchlist", "switch");
+  }
+
   function goBack() {
-    const target = screen === "settings" || screen === "tokens" ? returnTo.current : "start";
+    const target = screen === "settings" || screen === "tokens" ? returnTo.current : screen === "summary" ? summaryFrom.current : "start";
     void navigate(target, "switch");
     if (target === "start") setTimeout(() => setBuyButtonsEnabled(true), 1000);
   }
@@ -236,6 +333,9 @@ export default function App() {
     void navigate(target, "switch");
   }
 
+  const sectionScreen = screen === "settings" || screen === "tokens" ? returnTo.current : screen;
+  const activeMode = sectionScreen === "watchlist" || (sectionScreen === "summary" && summaryFrom.current === "watchlist") ? "watchlist" : "scanner";
+
   return (
     <div className="app">
       <TopBar
@@ -247,6 +347,8 @@ export default function App() {
         onSettings={screen === "start" ? () => openOverlayScreen("settings") : undefined}
         usage={usage}
         onTokens={screen === "tokens" ? undefined : () => openOverlayScreen("tokens")}
+        garageCount={watchlist.connected ? watchlist.items.length : null}
+        onGarage={screen === "watchlist" || scanInProgress ? undefined : openWatchlist}
       />
 
       <main className="app__screens">
@@ -261,13 +363,60 @@ export default function App() {
           onSwitchPage={() => void navigate("summary", "switch")}
           onDryRunChange={setDryRun}
           lastScan={summaryRun > 0 ? { stock, legend } : null}
-          onOpenLastScan={() => void navigate("summary", "switch")}
+          onOpenLastScan={() => {
+            summaryFrom.current = "start";
+            void navigate("summary", "switch");
+          }}
+          watchlist={watchlist}
+          onOpenWatchItem={openWatchItem}
+          onOpenWatchlist={openWatchlist}
         />
-        <LoadingPage screenRef={screenRefs.loading} active={screen === "loading"} symbol={loadingSymbol} marketState={clock.marketState} steps={steps} news={news.items} />
-        <SummaryPage screenRef={screenRefs.summary} active={screen === "summary"} stock={stock} summaryRun={summaryRun} legend={legend} news={news} onBack={goBack} />
+        <LoadingPage screenRef={screenRefs.loading} active={screen === "loading" || loadingDeparting} departing={loadingDeparting} symbol={loadingSymbol} marketState={clock.marketState} steps={steps} news={news.items} exchange={loadingExchange} finale={loadingFinale} />
+        <SummaryPage
+          screenRef={screenRefs.summary}
+          active={screen === "summary"}
+          stock={stock}
+          summaryRun={summaryRun}
+          legend={legend}
+          news={news}
+          onBack={goBack}
+          watch={{
+            watched: watchlist.items.some((item) => item.symbol === stock.symbol),
+            blocked:
+              stock.fullName === "Not Identified"
+                ? "MANUAL ENTRIES CAN'T BE WATCHED"
+                : legend.status !== "done"
+                  ? "LEGEND'S ANALYSIS IS NEEDED FIRST"
+                  : !watchlist.connected
+                    ? "THE WATCHLIST IS OFFLINE"
+                    : watchlist.items.length >= watchlist.limit
+                      ? "YOUR WATCHLIST IS FULL"
+                      : null,
+            count: watchlist.items.length,
+            limit: watchlist.limit,
+            tokensPerUpdate: legend.status === "done" ? (legend.response.tokens?.total ?? null) : null,
+            onAdd: () => addToWatchlist(stock.symbol, legend.status === "done" ? { stock, legend: legend.response, news: news.items } : undefined),
+            onRemove: () => removeFromWatchlist(stock.symbol),
+            onOpenWatchlist: openWatchlist,
+          }}
+        />
+        <WatchlistPage screenRef={screenRefs.watchlist} active={screen === "watchlist"} watchlist={watchlist} onOpenItem={openWatchItem} />
         <TokensPage screenRef={screenRefs.tokens} active={screen === "tokens"} usage={usage} error={usageError} />
         <SettingsPage screenRef={screenRefs.settings} active={screen === "settings"} dryRun={dryRun} onDryRunChange={setDryRun} />
       </main>
+
+      {!showSplash && (
+        <ModeBar activeMode={activeMode} hidden={!modeBarShown} busy={scanInProgress} onHome={goHome} onOpenWatchlist={openWatchlist} />
+      )}
+
+      {!showSplash && (
+        <Notifications
+          onOpen={(symbol) => {
+            const item = watchlist.items.find((i) => i.symbol === symbol);
+            if (item && screenRef.current !== "loading") openWatchItem(item);
+          }}
+        />
+      )}
 
       {error && (
         <Dialog title={error.title} onClose={() => setError(null)} action={error.retry && { label: "RETRY", onClick: error.retry }}>
