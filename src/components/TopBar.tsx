@@ -5,6 +5,7 @@ import { useClock, useMarketState } from "../lib/clock";
 import type { Connection } from "../lib/connection";
 import { useJobProgress, type TopJob } from "../lib/jobProgress";
 import { Diamond } from "../ui/Diamond";
+import { DynamicIsland } from "./DynamicIsland";
 import { formatTokens } from "../lib/numbers";
 import { useRollingNumber } from "../lib/useRollingNumber";
 import type { MarketState, TokenUsage } from "../lib/types";
@@ -189,8 +190,11 @@ export function TopBar({ barRef, hidden, onBack, onHome, onSettings, usage, onTo
         </button>
       )}
 
-      {/* Empty strip on the left; tiles are anchored to the right edge and run right to left */}
-      <div className={`topbar__space${job ? " has-job" : ""}`}>
+      {/* The soundtrack's now-playing island, centered in the free strip between the back button and the job tile */}
+      <DynamicIsland hasBack={Boolean(onBack)} />
+
+      {/* The job tile and connection signal; tiles are anchored to the right edge and run right to left */}
+      <div className={`topbar__space${job ? " has-job" : ""}${connection.state !== "ok" ? " has-signal" : ""}`}>
         {job && <JobTile key={job.source} job={job} onOpen={onOpenJob} />}
         <ConnectionSignal connection={connection} />
       </div>

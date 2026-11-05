@@ -9,6 +9,7 @@ import { TopBar } from "./components/TopBar";
 import { analyzeWithLegend, exampleLegendAnalysis, fetchNews, fetchStockData, fetchTokenUsage } from "./lib/api";
 import { marketStateNow, useMarketState } from "./lib/clock";
 import { markTitleScreenSeen, shouldShowTitleScreen } from "./lib/settings";
+import { openStream } from "./lib/stream";
 import type { NewsItem, ScreenerEntry, StockData, TokenUsage, WatchItem } from "./lib/types";
 import { useConnection } from "./lib/connection";
 import type { TopJob } from "./lib/jobProgress";
@@ -41,9 +42,8 @@ const MIN_LOADING_MS = 1400;
 const STEP_DONE_PAUSE_MS = 450;
 // The loading screen's finale: the words fade and the exchange photo fills the screen
 const LOADING_FINALE_MS = 1650;
-const USAGE_REFRESH_MS = 60_000;
-// Watchlist updates spend tokens; pick them up soon after, but not on every single update
-const USAGE_AFTER_UPDATE_MS = 2_500;
+// The counter is pushed live; this only catches the day rolling over with nothing spent
+const USAGE_REFRESH_MS = 5 * 60_000;
 
 const placeholderStock: StockData = {
   symbol: "STCK",
@@ -102,7 +102,6 @@ export default function App() {
   const returnTo = useRef<Screen>("start");
   // Where the summary was opened from (a scan, the home watchlist or the watchlist screen)
   const summaryFrom = useRef<Screen>("start");
-  const usageTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const screenRef = useRef<Screen>("start");
   const navQueue = useRef<Promise<void>>(Promise.resolve());
   const queuedTarget = useRef<Screen | null>(null);
@@ -110,29 +109,14 @@ export default function App() {
 
   useEffect(() => sfx.preload(), []);
 
-  // Live watchlist; each finished update spent tokens, so the top bar counter follows along
-  const watchlist = useWatchlist((item) => {
-    if (!item.legend?.tokens || usageTimer.current) return;
-    usageTimer.current = setTimeout(() => {
-      usageTimer.current = null;
-      refreshUsage();
-    }, USAGE_AFTER_UPDATE_MS);
-  });
+  // Live watchlist
+  const watchlist = useWatchlist();
 
   // The stock screener's board, live (it only scans while a page is connected and it isn't paused)
   const screener = useScreener();
   // Market news, read by Legend on its schedule
   const marketNews = useMarketNews();
   const connection = useConnection(watchlist.connected && screener.connected && marketNews.connected);
-
-  // Each grade Legend adds to the board, and each batch of news it reads, spent tokens: pick them
-  // up as they land (debounced)
-  const gradedKey = screener.board.reduce((n, e) => n + (e.analyzedAt ?? 0), 0) + marketNews.stories.reduce((n, s) => n + (s.readAt ?? 0), 0);
-  useEffect(() => {
-    if (!gradedKey) return;
-    const timer = setTimeout(refreshUsage, USAGE_AFTER_UPDATE_MS);
-    return () => clearTimeout(timer);
-  }, [gradedKey]);
 
   // Watchlist updates and screener grades follow the LEGEND DRY RUN setting too
   useEffect(() => {
@@ -153,11 +137,25 @@ export default function App() {
       });
   }
 
-  // Token counter: load now, then keep it fresh (the day can roll over while the app is open)
+  // Token counter, live: the server pushes a fresh count after every Legend call, whatever made it
+  // (scans, watchlist updates, screener grades, news reads and briefings, story briefs)
   useEffect(() => {
-    refreshUsage();
+    const close = openStream(
+      "/legend/usage/stream",
+      {
+        usage: (data) => {
+          setUsage(data as TokenUsage);
+          setUsageError(false);
+        },
+      },
+      // A dropped line shows in the connection signal; the stream reopens by itself
+      () => {},
+    );
     const timer = setInterval(refreshUsage, USAGE_REFRESH_MS);
-    return () => clearInterval(timer);
+    return () => {
+      close();
+      clearInterval(timer);
+    };
   }, []);
 
   // First screen builds in once the splash is gone (or straight away when it was already seen)

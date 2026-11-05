@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type Ref } from "react";
 import { ExchangePreview } from "../components/ExchangePreview";
+import { music, useMusic } from "../audio/music";
 import { sfx, useSfxMuted, useSfxVolume } from "../audio/sfx";
 import { fetchLegendStatus } from "../lib/api";
 import type { LegendStatus } from "../lib/types";
@@ -107,6 +108,7 @@ export function SettingsPage({ screenRef, active, dryRun, onDryRunChange }: Sett
   const [preview, setPreview] = useState(false);
   const muted = useSfxMuted();
   const volume = useSfxVolume();
+  const song = useMusic();
 
   return (
     <section className="screen screen--settings" ref={screenRef} hidden={!active} aria-label="Settings">
@@ -128,6 +130,10 @@ export function SettingsPage({ screenRef, active, dryRun, onDryRunChange }: Sett
             value={!muted}
             onChange={(on) => sfx.setMuted(!on)}
           />
+          <Reveal kind="slide" wash="none" className="setting setting--slider">
+            <Slider label="MUSIC" value={song.muted ? 0 : song.volume} onChange={(v) => music.setVolume(v)} />
+          </Reveal>
+          <Toggle title="MUSIC" value={!song.muted} onChange={(on) => music.setMuted(!on)} />
           <Toggle title="TITLE SCREEN" value={settings.titleScreen} onChange={(on) => updateSettings({ titleScreen: on })} />
           <Toggle title="DEV OPTIONS" value={settings.devOptions} onChange={(on) => updateSettings({ devOptions: on })} />
           <Toggle title="LEGEND DRY RUN" value={dryRun} onChange={onDryRunChange} />

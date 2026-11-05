@@ -1,0 +1,540 @@
+/* The soundtrack's now-playing island in the top bar, after the iPhone's Dynamic Island.
+   The island is positioned against the top bar (not its slot), so it can grow over the page without
+   being clipped; the slot only reserves the compact pill's room and centers it. */
+
+:root {
+  --island-w: 196px;
+  --island-h: 38px;
+  --island-peek-w: 320px;
+  --island-open-w: 420px;
+  --island-spring: cubic-bezier(0.32, 1.32, 0.52, 1);
+  --island-tint: #ff2d6f;
+}
+
+/* ---------- Top bar layout: the island sits at the right end of the free strip, up against the
+   tiles (or the job tile and signal when they're showing), and moves over as those come and go ---------- */
+.topbar__island {
+  flex: 1 1 0;
+  min-width: calc(var(--island-w) + 24px);
+  display: flex;
+  justify-content: flex-end;
+  align-items: flex-start;
+  padding: calc((var(--topbar-h) - var(--island-h)) / 2) calc((var(--topbar-h) - var(--island-h)) / 2) 0 12px;
+  background: linear-gradient(180deg, #16294a, #11213b);
+}
+/* Clear of the back triangle */
+.topbar__island.has-back {
+  min-width: calc(var(--island-w) + 124px);
+  padding-left: 112px;
+}
+.topbar .topbar__space {
+  flex: 0 1 0px;
+  padding-left: 0;
+}
+.topbar .topbar__space.has-job,
+.topbar .topbar__space.has-signal {
+  flex-basis: 252px;
+}
+
+/* ---------- The island ---------- */
+.island {
+  position: absolute;
+  z-index: 10;
+  width: var(--island-w);
+  height: var(--island-h);
+  border-radius: calc(var(--island-h) / 2);
+  background: #000;
+  color: #fff;
+  overflow: hidden;
+  cursor: inherit;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06);
+  transition:
+    width 0.55s var(--island-spring),
+    height 0.55s var(--island-spring),
+    border-radius 0.45s ease,
+    box-shadow 0.3s ease,
+    transform 0.2s ease;
+}
+.island.is-compact:hover {
+  transform: scale(1.035);
+}
+.island.is-compact:active {
+  transform: scale(0.97);
+}
+.island:focus-visible {
+  outline: 2px solid var(--a9-cyan);
+  outline-offset: 2px;
+}
+.island.is-peek {
+  width: min(var(--island-peek-w), var(--island-room, 9999px));
+}
+.island.is-expanded {
+  width: var(--island-open-w);
+  height: 212px;
+  transform: translateX(var(--island-shift, 0px));
+  border-radius: 40px;
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.08),
+    0 18px 50px rgba(0, 0, 0, 0.6);
+}
+.island.is-expanded.has-list {
+  height: 466px;
+}
+
+/* Compact: art left, wave right, the song's name between while peeking */
+.island__compact {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px 0 6px;
+  transition: opacity 0.18s ease;
+}
+.island.is-expanded .island__compact {
+  opacity: 0;
+  pointer-events: none;
+}
+.island__art {
+  flex: none;
+  width: calc(var(--island-h) - 12px);
+  height: calc(var(--island-h) - 12px);
+  border-radius: 7px;
+  object-fit: cover;
+}
+.island__peek {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.05;
+  opacity: 0;
+  transform: translateY(3px);
+  transition:
+    opacity 0.25s ease,
+    transform 0.35s ease;
+}
+.island.is-peek .island__peek {
+  opacity: 1;
+  transform: none;
+  transition-delay: 0.18s;
+}
+.island__peek-title,
+.island__peek-artist {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.island__peek-title {
+  font-size: 15px;
+  font-weight: 700;
+}
+.island__peek-artist {
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.55);
+}
+.island__compact .iwave {
+  margin-left: auto;
+}
+
+/* ---------- Live waveform ---------- */
+.iwave {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 18px;
+}
+.iwave__bar {
+  width: 3px;
+  height: 100%;
+  border-radius: 2px;
+  background: linear-gradient(180deg, #ff8fb0, var(--island-tint));
+  transform: scaleY(0.15);
+  transition: transform 0.35s ease;
+  will-change: transform;
+}
+/* While playing the frames drive the bars directly */
+.iwave.is-playing .iwave__bar {
+  transition: none;
+}
+.iwave.is-large {
+  height: 26px;
+  gap: 4px;
+}
+.iwave.is-large .iwave__bar {
+  width: 4px;
+}
+.iwave.is-tiny {
+  height: 12px;
+  gap: 2px;
+}
+.iwave.is-tiny .iwave__bar {
+  width: 2px;
+}
+
+/* ---------- Expanded: the player ---------- */
+.island__player {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: var(--island-open-w);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px 20px 14px;
+  opacity: 0;
+  transform: scale(0.94);
+  transform-origin: 50% 0;
+  pointer-events: none;
+  transition:
+    opacity 0.15s ease,
+    transform 0.3s ease;
+}
+.island.is-expanded .island__player {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+  transition:
+    opacity 0.3s ease 0.14s,
+    transform 0.45s var(--island-spring) 0.08s;
+}
+.island__now {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+.island__cover {
+  flex: none;
+  width: 58px;
+  height: 58px;
+  border-radius: 13px;
+  object-fit: cover;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.1);
+}
+.island__meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.island__title,
+.island__artist {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.island__title {
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.1;
+}
+.island__artist {
+  font-size: 15px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+/* Scrubber */
+.iscrub {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) 44px;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: rgba(255, 255, 255, 0.55);
+}
+.iscrub__time.is-left {
+  text-align: right;
+}
+.iscrub__track {
+  height: 20px;
+  display: flex;
+  align-items: center;
+  cursor: inherit;
+  touch-action: none;
+}
+.iscrub__track:focus-visible {
+  outline: none;
+}
+.iscrub__track:focus-visible .iscrub__rail {
+  box-shadow: 0 0 0 2px var(--a9-cyan);
+}
+.iscrub__rail {
+  position: relative;
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.22);
+  overflow: hidden;
+  transition: height 0.15s ease;
+}
+.iscrub__track:hover .iscrub__rail,
+.iscrub__track.is-dragging .iscrub__rail {
+  height: 9px;
+}
+.iscrub__fill {
+  position: absolute;
+  inset: 0;
+  background: #fff;
+  transform: scaleX(0);
+  transform-origin: 0 50%;
+}
+
+/* Controls */
+.island__controls {
+  display: grid;
+  grid-template-columns: 44px 1fr 44px;
+  align-items: center;
+}
+.island__transport {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 26px;
+}
+.island__controls button {
+  display: grid;
+  place-items: center;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: #fff;
+  cursor: inherit;
+  border-radius: 50%;
+  transition:
+    transform 0.12s ease,
+    background 0.15s ease,
+    color 0.15s ease;
+}
+.island__transport button {
+  width: 48px;
+  height: 48px;
+}
+.island__controls button:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+.island__controls button:active {
+  transform: scale(0.88);
+  background: rgba(255, 255, 255, 0.18);
+}
+.island__controls button:focus-visible {
+  outline: 2px solid var(--a9-cyan);
+  outline-offset: 0;
+}
+.island__side {
+  width: 40px;
+  height: 40px;
+  color: rgba(255, 255, 255, 0.6) !important;
+}
+.island__side.is-on {
+  color: var(--island-tint) !important;
+}
+.island__side.is-off {
+  color: rgba(255, 255, 255, 0.35) !important;
+}
+
+/* Volume: a thin pill slider, like the phone's */
+.island__volume {
+  display: flex;
+  padding: 0 4px;
+}
+.island__volume input {
+  flex: 1;
+  height: 16px;
+  margin: 0;
+  background: transparent;
+  -webkit-appearance: none;
+  appearance: none;
+  cursor: inherit;
+}
+.island__volume input::-webkit-slider-runnable-track {
+  height: 5px;
+  border-radius: 3px;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.85) calc(var(--v) * 100%), rgba(255, 255, 255, 0.2) 0);
+}
+.island__volume input::-moz-range-track {
+  height: 5px;
+  border-radius: 3px;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.85) calc(var(--v) * 100%), rgba(255, 255, 255, 0.2) 0);
+}
+.island__volume input::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: -4.5px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+}
+.island__volume input::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border: 0;
+  border-radius: 50%;
+  background: #fff;
+}
+
+/* Playlist */
+.iplaylist {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 2px -8px 0;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  animation: iplaylist-in 0.35s ease 0.12s both;
+}
+@keyframes iplaylist-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+.iplaylist__head {
+  display: flex;
+  justify-content: space-between;
+  padding: 0 8px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+.iplaylist__count {
+  color: rgba(255, 255, 255, 0.45);
+}
+.iplaylist__list {
+  height: 214px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.25) transparent;
+}
+.iplaylist__item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: #fff;
+  text-align: left;
+  cursor: inherit;
+}
+.iplaylist__item:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+.iplaylist__item.is-on .iplaylist__title {
+  color: var(--island-tint);
+}
+.iplaylist__mark {
+  flex: none;
+  width: 14px;
+  display: grid;
+  place-items: center;
+}
+.iplaylist__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.15;
+}
+.iplaylist__title,
+.iplaylist__artist {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.iplaylist__title {
+  font-size: 15px;
+  font-weight: 700;
+}
+.iplaylist__artist {
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.5);
+}
+.iplaylist__next {
+  flex: none;
+  padding: 2px 6px 1px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.12);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+/* ---------- Sizes: the pill steps down with the window, like the island on smaller phones ---------- */
+@media (max-width: 1300px) {
+  :root {
+    --island-w: 168px;
+    --island-peek-w: 280px;
+  }
+}
+@media (max-width: 900px) {
+  :root {
+    --island-w: 140px;
+    --island-peek-w: 240px;
+    --island-open-w: 380px;
+  }
+  .island__compact {
+    gap: 6px;
+    padding-right: 11px;
+  }
+}
+@media (max-width: 560px) {
+  :root {
+    --island-w: 116px;
+    --island-h: 34px;
+    --island-peek-w: 200px;
+  }
+  .topbar__island.has-back {
+    min-width: calc(var(--island-w) + 102px);
+    padding-left: 90px;
+  }
+  .island__peek-title {
+    font-size: 13px;
+  }
+  .island__peek-artist {
+    display: none;
+  }
+}
+/* Phones: the open player spans the screen under the bar's edge */
+@media (max-width: 700px) {
+  .island.is-expanded {
+    position: fixed;
+    top: 6px;
+    left: 8px;
+    right: 8px;
+    width: auto;
+  }
+  .island__player {
+    width: 100%;
+  }
+  .island__transport {
+    gap: 14px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .island,
+  .island__player,
+  .island__peek {
+    transition-duration: 0.01s !important;
+    transition-delay: 0s !important;
+  }
+}

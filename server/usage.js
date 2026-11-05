@@ -57,7 +57,21 @@ function record(usage, now = new Date()) {
   } catch (err) {
     console.error("Could not save token usage:", err.message);
   }
+  for (const fn of listeners) {
+    try {
+      fn();
+    } catch (err) {
+      console.error("Token usage listener failed:", err.message);
+    }
+  }
   return { prompt, completion, total };
+}
+
+// Told after every recorded call, whatever spent the tokens (the live counter's stream)
+const listeners = new Set();
+function onRecord(fn) {
+  listeners.add(fn);
+  return () => listeners.delete(fn);
 }
 
 function sum(keys) {
@@ -102,4 +116,4 @@ function summary(now = new Date()) {
   };
 }
 
-module.exports = { record, summary };
+module.exports = { record, summary, onRecord };

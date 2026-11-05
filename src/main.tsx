@@ -10,6 +10,7 @@ import "./styles/notifications.css";
 import "./styles/screener.css";
 import "./styles/news.css";
 import "./styles/schedule.css";
+import "./styles/island.css";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

@@ -1,6 +1,7 @@
 require('dotenv').config();  
 const express = require("express");
 const cors = require("cors");
+const fs = require("fs");
 const path = require("path");
 
 // Market data, Legend AI (LM Studio) with its news retrieval, and the watchlist
@@ -133,9 +134,42 @@ app.post("/legend/example", async (req, res) => {
   res.json(legend.example(stockData, req.body.marketState, Array.isArray(req.body.news) ? req.body.news : []));
 });
 
-// Token usage ("A-tokens"): today, this week, this month and lifetime
+// Token usage ("A-tokens"): today, this week, this month and lifetime. The daily limit is the Update
+// Schedule's (or the LEGEND_DAILY_TOKENS fallback); none is null.
+function usageSnapshot() {
+  const summary = legend.usageSummary();
+  return { ...summary, dailyLimit: schedule.settings().dailyTokenLimit || summary.dailyLimit };
+}
 app.get("/legend/usage", (req, res) => {
-  res.json(legend.usageSummary());
+  res.json(usageSnapshot());
+});
+
+// The same, live: a fresh summary after every Legend call, whatever made it (scans, the watchlist,
+// the screener, news reads and briefings, story briefs) and when the daily limit changes, so the
+// top bar's counter never lags what was spent
+const usageClients = new Set();
+let usagePending = null;
+function pushUsage() {
+  if (usagePending) return;
+  usagePending = setTimeout(() => {
+    usagePending = null;
+    const data = `event: usage\ndata: ${JSON.stringify(usageSnapshot())}\n\n`;
+    for (const res of usageClients) res.write(data);
+  }, 250);
+}
+legend.onUsage(pushUsage);
+schedule.onChange(pushUsage);
+app.get("/legend/usage/stream", (req, res) => {
+  res.set({ "Content-Type": "text/event-stream", "Cache-Control": "no-cache, no-transform", Connection: "keep-alive", "X-Accel-Buffering": "no" });
+  res.flushHeaders();
+  res.write("retry: 3000\n\n");
+  res.write(`event: usage\ndata: ${JSON.stringify(usageSnapshot())}\n\n`);
+  usageClients.add(res);
+  const ping = setInterval(() => res.write(`event: ping\ndata: ${Date.now()}\n\n`), 15_000);
+  req.on("close", () => {
+    clearInterval(ping);
+    usageClients.delete(res);
+  });
 });
 
 // Connection check for the Settings screen
@@ -276,6 +310,38 @@ app.put("/schedule", (req, res) => {
     res.status(err.status || 500).json({ error: err.message });
   }
 });
+
+// ---------- Soundtrack ----------
+// The menu music: every audio file in the project's Soundtrack folder (one level above this app;
+// SOUNDTRACK_DIR overrides it). New files show up on the next page load, nothing to register.
+const SOUNDTRACK_DIR = process.env.SOUNDTRACK_DIR || path.join(__dirname, "..", "..", "Soundtrack");
+const AUDIO_FILE = /\.(mp3|m4a|aac|ogg|oga|wav|flac)$/i;
+
+/** "[Asphalt 9： Legends Soundtrack] Lemaitre - Higher (ft. Maty Noyes).mp3" -> Higher, by Lemaitre ft. Maty Noyes */
+function trackFromFile(file) {
+  const name = file.replace(AUDIO_FILE, "").replace(/^\[[^\]]*\]\s*/, "").trim();
+  const dash = name.indexOf(" - ");
+  let artist = dash > 0 ? name.slice(0, dash).trim() : "Asphalt 9: Legends";
+  let title = dash > 0 ? name.slice(dash + 3).trim() : name;
+  const feat = title.match(/\s*[([](?:ft\.?|feat\.?|featuring)\s+([^)\]]+)[)\]]/i);
+  if (feat) {
+    title = title.replace(feat[0], "").trim();
+    artist = `${artist} ft. ${feat[1].trim()}`;
+  }
+  return { id: file, title, artist, url: `/soundtrack/${encodeURIComponent(file)}` };
+}
+
+app.get("/music/tracks", (req, res) => {
+  let files = [];
+  try {
+    files = fs.readdirSync(SOUNDTRACK_DIR).filter((f) => AUDIO_FILE.test(f) && !f.startsWith("."));
+  } catch (err) {
+    if (err.code !== "ENOENT") console.error("Soundtrack folder unreadable:", err.message);
+  }
+  res.json({ tracks: files.sort((a, b) => a.localeCompare(b)).map(trackFromFile) });
+});
+// Range requests are supported, so the island's scrubber can seek
+app.use("/soundtrack", express.static(SOUNDTRACK_DIR, { maxAge: "7d" }));
 
 // Serve the built React site (npm run build) from the same origin as the API
 app.use(express.static(path.join(__dirname, "..", "dist")));

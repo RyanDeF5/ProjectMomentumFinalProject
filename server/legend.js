@@ -703,5 +703,6 @@ module.exports = {
   readStory,
   exampleStory,
   usageSummary: usage.summary,
+  onUsage: usage.onRecord,
   LEGEND_URL,
 };
