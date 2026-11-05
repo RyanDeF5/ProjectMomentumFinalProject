@@ -312,9 +312,9 @@ app.put("/schedule", (req, res) => {
 });
 
 // ---------- Soundtrack ----------
-// The menu music: every audio file in the project's Soundtrack folder (one level above this app;
-// SOUNDTRACK_DIR overrides it). New files show up on the next page load, nothing to register.
-const SOUNDTRACK_DIR = process.env.SOUNDTRACK_DIR || path.join(__dirname, "..", "..", "Soundtrack");
+// The menu music: every audio file in the app's Soundtrack folder (SOUNDTRACK_DIR overrides it).
+// New files show up on the next page load, nothing to register.
+const SOUNDTRACK_DIR = process.env.SOUNDTRACK_DIR || path.join(__dirname, "..", "Soundtrack");
 const AUDIO_FILE = /\.(mp3|m4a|aac|ogg|oga|wav|flac)$/i;
 
 /** "[Asphalt 9： Legends Soundtrack] Lemaitre - Higher (ft. Maty Noyes).mp3" -> Higher, by Lemaitre ft. Maty Noyes */

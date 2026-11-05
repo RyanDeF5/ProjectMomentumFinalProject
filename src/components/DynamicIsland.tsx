@@ -246,7 +246,7 @@ function Playlist({ tracks, current, playing }: { tracks: Track[]; current: Trac
   );
 }
 
-export function DynamicIsland({ hasBack }: { hasBack: boolean }) {
+export function DynamicIsland() {
   const state = useMusic();
   const [mode, setMode] = useState<Mode>("compact");
   const [list, setList] = useState(false);
@@ -288,39 +288,9 @@ export function DynamicIsland({ hasBack }: { hasBack: boolean }) {
     if (mode !== "expanded") setList(false);
   }, [mode]);
 
-  // The pill sits against the tiles, so it grows out to the left from its right edge: the song-name
-  // peek is capped to the free room in the strip, and the open player, if it would run past the
-  // window's left edge, is nudged back inside. Re-measured whenever the strip resizes (a job tile
-  // coming or going, the window changing).
-  const slotRef = useRef<HTMLDivElement>(null);
-  useLayoutEffect(() => {
-    const el = island.current;
-    const slotEl = slotRef.current;
-    if (!el || !slotEl) return;
-    const place = () => {
-      const r = slotEl.getBoundingClientRect();
-      const cs = getComputedStyle(slotEl);
-      const right = r.right - parseFloat(cs.paddingRight);
-      el.style.setProperty("--island-room", `${Math.max(0, Math.floor(right - (r.left + parseFloat(cs.paddingLeft))))}px`);
-      let shift = 0;
-      if (mode === "expanded" && window.innerWidth > 700) {
-        const width = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--island-open-w")) || 420;
-        const left = right - width;
-        if (left < 10) shift = 10 - left;
-      }
-      el.style.setProperty("--island-shift", `${Math.round(shift)}px`);
-    };
-    place();
-    const watch = new ResizeObserver(place);
-    watch.observe(slotEl);
-    window.addEventListener("resize", place);
-    return () => {
-      watch.disconnect();
-      window.removeEventListener("resize", place);
-    };
-  }, [mode, Boolean(state.track)]);
 
-  const slot = `topbar__island${hasBack ? " has-back" : ""}`;
+  // The anchor: a fixed point in the top bar the island is centered on (styles/island.css)
+  const slot = "topbar__island";
   if (!state.tracks.length || !state.track) return <div className={slot} />;
 
   const { track, playing, waiting, duration, muted, volume } = state;
@@ -331,7 +301,7 @@ export function DynamicIsland({ hasBack }: { hasBack: boolean }) {
   };
 
   return (
-    <div className={slot} ref={slotRef}>
+    <div className={slot}>
       <div
         ref={island}
         className={`island is-${mode}${list ? " has-list" : ""}${playing ? " is-playing" : ""}`}

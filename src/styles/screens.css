@@ -2661,9 +2661,13 @@
 .topbar__space.has-job .signal {
   padding: 0 12px;
 }
-/* Fixed sizes only, never sized by its text: full (236px), percentage only (92px), icon only (48px) */
-@container (max-width: 299px) {
-  .jobtile {
+/* Never sized by its text: full (name, percentage and what Legend is doing; up to 236px, filling the
+   room left of the island), percentage only (92px), icon only (48px) */
+.topbar__space .jobtile {
+  width: min(236px, 100cqw);
+}
+@container (max-width: 139px) {
+  .topbar__space .jobtile {
     width: 92px;
     padding: 0 10px;
     gap: 8px;
@@ -2673,8 +2677,8 @@
     display: none;
   }
 }
-@container (max-width: 150px) {
-  .jobtile {
+@container (max-width: 91px) {
+  .topbar__space .jobtile {
     width: 48px;
     justify-content: center;
   }

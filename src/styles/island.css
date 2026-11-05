@@ -1,44 +1,62 @@
 /* The soundtrack's now-playing island in the top bar, after the iPhone's Dynamic Island.
-   The island is positioned against the top bar (not its slot), so it can grow over the page without
-   being clipped; the slot only reserves the compact pill's room and centers it. */
+
+   Layout: the free strip between the back corner and the tiles (.topbar__free) is a size container.
+   The island is anchored at a fixed point in it: the window's center when the tiles leave room,
+   otherwise as close to it as the tiles allow. That point depends only on the window's width, so the
+   island never moves: not when it's tapped, not when a job tile or the connection signal appears.
+   It opens, peeks and closes around that point. The job tile and signal sit on its left, in the
+   room between the back corner and the island (.topbar__space). */
 
 :root {
   --island-w: 196px;
   --island-h: 38px;
   --island-peek-w: 320px;
-  --island-open-w: 420px;
+  --island-open-w: min(420px, calc(100vw - 16px));
   --island-spring: cubic-bezier(0.32, 1.32, 0.52, 1);
   --island-tint: #ff2d6f;
+  /* The back corner's width: kept clear on every screen, so the island sits in the same place everywhere */
+  --back-w: 104px;
+  /* Room always kept for the job tile left of the island (at least its icon) */
+  --job-min: 60px;
 }
 
-/* ---------- Top bar layout: the island sits at the right end of the free strip, up against the
-   tiles (or the job tile and signal when they're showing), and moves over as those come and go ---------- */
-.topbar__island {
+/* ---------- Top bar layout ---------- */
+.topbar__free {
+  position: relative;
   flex: 1 1 0;
-  min-width: calc(var(--island-w) + 24px);
-  display: flex;
-  justify-content: flex-end;
-  align-items: flex-start;
-  padding: calc((var(--topbar-h) - var(--island-h)) / 2) calc((var(--topbar-h) - var(--island-h)) / 2) 0 12px;
+  min-width: calc(var(--back-w) + var(--island-w) + 24px);
+  container-type: inline-size;
   background: linear-gradient(180deg, #16294a, #11213b);
+  /* The island's center: the window's, or as far right as leaves the song-name peek clear of the
+     tiles, or (in the tightest windows) as far left as clears the back corner */
+  --island-x: max(calc(var(--back-w) + var(--job-min) + 12px + var(--island-w) / 2), min(50vw, calc(100cqw - 12px - var(--island-peek-w) / 2)));
 }
-/* Clear of the back triangle */
-.topbar__island.has-back {
-  min-width: calc(var(--island-w) + 124px);
-  padding-left: 112px;
-}
+/* Job tile and connection signal: left of the island */
 .topbar .topbar__space {
-  flex: 0 1 0px;
-  padding-left: 0;
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--back-w);
+  width: max(0px, calc(var(--island-x) - var(--island-w) / 2 - 12px - var(--back-w)));
+  padding: 0;
+  justify-content: flex-start;
+  background: none;
 }
-.topbar .topbar__space.has-job,
-.topbar .topbar__space.has-signal {
-  flex-basis: 252px;
+/* The anchor: a zero-width point the island is centered on, so it grows evenly to both sides */
+.topbar__island {
+  position: absolute;
+  top: calc((var(--topbar-h) - var(--island-h)) / 2);
+  left: var(--island-x);
+  width: 0;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
 }
 
 /* ---------- The island ---------- */
 .island {
-  position: absolute;
+  position: relative;
+  flex: none;
   z-index: 10;
   width: var(--island-w);
   height: var(--island-h);
@@ -58,23 +76,30 @@
     box-shadow 0.3s ease,
     transform 0.2s ease;
 }
+/* Hover and press light the rim; nothing scales or moves */
 .island.is-compact:hover {
-  transform: scale(1.035);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.28);
 }
 .island.is-compact:active {
-  transform: scale(0.97);
+  background: #111;
 }
 .island:focus-visible {
   outline: 2px solid var(--a9-cyan);
   outline-offset: 2px;
 }
 .island.is-peek {
-  width: min(var(--island-peek-w), var(--island-room, 9999px));
+  /* Never wider than the room to the tiles on either side */
+  width: max(var(--island-w), min(var(--island-peek-w), calc((100cqw - 12px - var(--island-x)) * 2), calc((var(--island-x) - var(--back-w)) * 2)));
 }
 .island.is-expanded {
   width: var(--island-open-w);
   height: 212px;
-  transform: translateX(var(--island-shift, 0px));
+  /* Kept inside the window on narrow screens (a fixed offset for the window's width, never animated) */
+  left: clamp(
+    calc(8px + var(--island-open-w) / 2 - var(--island-x)),
+    0px,
+    calc(100vw - 8px - var(--island-open-w) / 2 - var(--island-x))
+  );
   border-radius: 40px;
   box-shadow:
     0 0 0 1px rgba(255, 255, 255, 0.08),
@@ -478,6 +503,31 @@
   color: rgba(255, 255, 255, 0.7);
 }
 
+/* ---------- Tiles: room for the island and a full job tile on laptop screens ---------- */
+/* The tiles keep their fixed widths; below 1600px the date steps aside (it's on the home screen) and
+   the session status narrows, which frees the strip for the job tile to show what Legend is doing */
+@media (max-width: 1600px) {
+  .topbar__date {
+    display: none;
+  }
+  .topbar__status {
+    width: 240px;
+    font-size: 21px;
+  }
+}
+/* Below 1300px the clock steps aside too (the home screen has the big one) */
+@media (max-width: 1300px) {
+  .topbar__counter {
+    display: none;
+  }
+}
+@media (max-width: 1200px) {
+  .topbar__status {
+    width: 220px;
+    font-size: 20px;
+  }
+}
+
 /* ---------- Sizes: the pill steps down with the window, like the island on smaller phones ---------- */
 @media (max-width: 1300px) {
   :root {
@@ -486,10 +536,14 @@
   }
 }
 @media (max-width: 900px) {
+  /* Small windows: no room for the job tile beside the island (the loading line shows progress) */
+  .topbar__free {
+    --job-min: 0px;
+  }
   :root {
     --island-w: 140px;
     --island-peek-w: 240px;
-    --island-open-w: 380px;
+    --island-open-w: min(380px, calc(100vw - 16px));
   }
   .island__compact {
     gap: 6px;
@@ -502,9 +556,10 @@
     --island-h: 34px;
     --island-peek-w: 200px;
   }
-  .topbar__island.has-back {
-    min-width: calc(var(--island-w) + 102px);
-    padding-left: 90px;
+  /* Phones: no room for the job tile (the loading line along the bar's bottom shows progress) */
+  .topbar__free {
+    --back-w: 84px;
+    --job-min: 0px;
   }
   .island__peek-title {
     font-size: 13px;
@@ -513,18 +568,8 @@
     display: none;
   }
 }
-/* Phones: the open player spans the screen under the bar's edge */
+/* Phones: tighter controls */
 @media (max-width: 700px) {
-  .island.is-expanded {
-    position: fixed;
-    top: 6px;
-    left: 8px;
-    right: 8px;
-    width: auto;
-  }
-  .island__player {
-    width: 100%;
-  }
   .island__transport {
     gap: 14px;
   }

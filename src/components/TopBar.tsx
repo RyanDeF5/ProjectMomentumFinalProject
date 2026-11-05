@@ -190,13 +190,14 @@ export function TopBar({ barRef, hidden, onBack, onHome, onSettings, usage, onTo
         </button>
       )}
 
-      {/* The soundtrack's now-playing island, centered in the free strip between the back button and the job tile */}
-      <DynamicIsland hasBack={Boolean(onBack)} />
-
-      {/* The job tile and connection signal; tiles are anchored to the right edge and run right to left */}
-      <div className={`topbar__space${job ? " has-job" : ""}${connection.state !== "ok" ? " has-signal" : ""}`}>
-        {job && <JobTile key={job.source} job={job} onOpen={onOpenJob} />}
-        <ConnectionSignal connection={connection} />
+      {/* The free strip: the job tile and connection signal on the left, the soundtrack's island at a
+          fixed point near the center (see styles/island.css) */}
+      <div className="topbar__free">
+        <div className={`topbar__space${job ? " has-job" : ""}`}>
+          {job && <JobTile key={job.source} job={job} onOpen={onOpenJob} />}
+          <ConnectionSignal connection={connection} />
+        </div>
+        <DynamicIsland />
       </div>
 
       {/* Watchlist size, like the game's garage count (candlesticks for tickers). New tiles are added on this end. */}
