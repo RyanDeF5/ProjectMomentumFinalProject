@@ -2505,3 +2505,217 @@
   z-index: 80;
   pointer-events: none;
 }
+
+/* ---------- Connection signal (weak or lost connection), at the right end of the top bar's empty strip ---------- */
+.topbar__space {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 0;
+  overflow: hidden;
+  /* Clear of the back button that sits over the left end */
+  padding-left: 104px;
+  container-type: inline-size;
+}
+.signal {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 16px 0 8px;
+  min-width: 0;
+  color: #fff;
+  animation:
+    signal-in 0.5s ease-out both,
+    signal-fade 2.6s ease-in-out 0.5s infinite;
+  transition: opacity 0.6s ease;
+}
+.signal.is-gone {
+  opacity: 0;
+  animation: none;
+  pointer-events: none;
+}
+.signal__icon {
+  display: grid;
+  flex: none;
+  filter: drop-shadow(0 0 6px rgba(255, 31, 61, 0.35));
+}
+.signal__text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.05;
+  white-space: nowrap;
+}
+.signal__label {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.signal__detail {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  color: #ff5a70;
+}
+@keyframes signal-in {
+  from {
+    opacity: 0;
+    transform: translateX(10px);
+  }
+}
+/* A slow breathe, like the game's connection warning */
+@keyframes signal-fade {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+/* Icon only when the strip is short of room */
+@container (max-width: 215px) {
+  .signal__text {
+    display: none;
+  }
+  .signal {
+    padding: 0 12px;
+  }
+}
+@media (max-width: 560px) {
+  .topbar__space {
+    padding-left: 84px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .signal {
+    animation: none;
+  }
+}
+
+/* ---------- Background job (screener / watchlist update), in the top bar ---------- */
+/* Tile at the right end of the empty strip; opens that screen */
+.jobtile {
+  flex: none;
+  width: 236px;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px 0 12px;
+  border: 0;
+  background: rgba(255, 255, 255, 0.04);
+  box-shadow: inset 3px 0 0 var(--a9-lime);
+  color: #fff;
+  font: inherit;
+  text-align: left;
+  cursor: inherit;
+  animation: signal-in 0.35s ease-out both;
+}
+.jobtile:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.09);
+}
+.jobtile.is-held {
+  box-shadow: inset 3px 0 0 #ffc21a;
+}
+.jobtile__icon {
+  flex: none;
+  display: grid;
+  color: #ffc21a;
+}
+.jobtile__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  line-height: 1.05;
+}
+.jobtile__label {
+  display: flex;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+.jobtile__label strong {
+  margin-left: auto;
+  color: var(--a9-lime);
+  font-variant-numeric: tabular-nums;
+}
+.jobtile__step {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--a9-dim);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  font-variant-numeric: tabular-nums;
+}
+/* With a job showing, the connection signal keeps to its icon */
+.topbar__space.has-job .signal__text {
+  display: none;
+}
+.topbar__space.has-job .signal {
+  padding: 0 12px;
+}
+/* Fixed sizes only, never sized by its text: full (236px), percentage only (92px), icon only (48px) */
+@container (max-width: 299px) {
+  .jobtile {
+    width: 92px;
+    padding: 0 10px;
+    gap: 8px;
+  }
+  .jobtile__name,
+  .jobtile__step {
+    display: none;
+  }
+}
+@container (max-width: 150px) {
+  .jobtile {
+    width: 48px;
+    justify-content: center;
+  }
+  .jobtile__text {
+    display: none;
+  }
+}
+
+/* The loading line along the top bar's bottom edge */
+.topbar__line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  z-index: 2; /* under the back triangle */
+  height: 3px;
+  pointer-events: none;
+  background: rgba(0, 0, 0, 0.35);
+}
+.topbar__line-fill {
+  position: absolute;
+  inset: 0;
+  transform-origin: left;
+  background: var(--a9-lime);
+  box-shadow: 0 0 8px rgba(195, 251, 18, 0.55);
+  transition: transform 0.25s linear;
+}
+.topbar__line-edge {
+  position: absolute;
+  top: -1px;
+  bottom: -1px;
+  width: 4px;
+  margin-left: -4px;
+  background: #fff;
+  box-shadow: 0 0 8px 2px rgba(195, 251, 18, 0.8);
+  transition: left 0.25s linear;
+}
+.topbar__line.is-held .topbar__line-fill {
+  background: #ffc21a;
+  box-shadow: none;
+}
+.topbar__line.is-held .topbar__line-edge {
+  display: none;
+}

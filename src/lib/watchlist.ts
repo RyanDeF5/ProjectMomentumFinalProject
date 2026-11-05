@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { scoreToClass } from "./numbers";
 import type { LegendResponse, NewsItem, StockData, WatchAlert, WatchEngine, WatchItem, WatchSettings, WatchSnapshot } from "./types";
 import { notify } from "./notify";
+import { openStream } from "./stream";
 
 // Same origin by default: the Express server serves both the site and the API
 const API_URL = import.meta.env.VITE_API_URL ?? "";
@@ -41,43 +42,43 @@ export function useWatchlist(onUpdated?: (item: WatchItem) => void): Watchlist {
 
   useEffect(() => {
     const known = new Map<string, number | null>();
-    const source = new EventSource(`${API_URL}/watchlist/stream`);
-
-    source.addEventListener("snapshot", (e) => {
-      const snap = JSON.parse((e as MessageEvent).data) as WatchSnapshot;
-      known.clear();
-      snap.items.forEach((item) => known.set(item.symbol, item.updatedAt));
-      setList({ ...snap, connected: true, clockOffset: Date.now() - snap.now });
-    });
-    source.addEventListener("item", (e) => {
-      const item = JSON.parse((e as MessageEvent).data) as WatchItem;
-      const before = known.get(item.symbol);
-      known.set(item.symbol, item.updatedAt);
-      if (before !== undefined && item.updatedAt && item.updatedAt !== before) onUpdatedRef.current?.(item);
-      setList((prev) => {
-        const at = prev.items.findIndex((x) => x.symbol === item.symbol);
-        const items = at < 0 ? [...prev.items, item] : prev.items.map((x, i) => (i === at ? item : x));
-        return { ...prev, items };
-      });
-    });
-    source.addEventListener("remove", (e) => {
-      const { symbol } = JSON.parse((e as MessageEvent).data) as { symbol: string };
-      known.delete(symbol);
-      setList((prev) => ({ ...prev, items: prev.items.filter((x) => x.symbol !== symbol) }));
-    });
-    source.addEventListener("settings", (e) => {
-      const settings = JSON.parse((e as MessageEvent).data) as WatchSettings;
-      setList((prev) => ({ ...prev, settings }));
-    });
-    source.addEventListener("engine", (e) => {
-      const engine = JSON.parse((e as MessageEvent).data) as WatchEngine;
-      setList((prev) => ({ ...prev, engine, clockOffset: engine.now ? Date.now() - engine.now : prev.clockOffset }));
-    });
-    source.addEventListener("alert", (e) => notify(JSON.parse((e as MessageEvent).data) as WatchAlert));
-    // The browser reconnects on its own; a fresh snapshot follows
-    source.onerror = () => setList((prev) => (prev.connected ? { ...prev, connected: false } : prev));
-
-    return () => source.close();
+    // Reconnects by itself; a fresh snapshot follows each time
+    return openStream(
+      "/watchlist/stream",
+      {
+        snapshot: (data) => {
+          const snap = data as WatchSnapshot;
+          known.clear();
+          snap.items.forEach((item) => known.set(item.symbol, item.updatedAt));
+          setList({ ...snap, connected: true, clockOffset: Date.now() - snap.now });
+        },
+        item: (data) => {
+          const item = data as WatchItem;
+          const before = known.get(item.symbol);
+          known.set(item.symbol, item.updatedAt);
+          if (before !== undefined && item.updatedAt && item.updatedAt !== before) onUpdatedRef.current?.(item);
+          setList((prev) => {
+            const at = prev.items.findIndex((x) => x.symbol === item.symbol);
+            const items = at < 0 ? [...prev.items, item] : prev.items.map((x, i) => (i === at ? item : x));
+            return { ...prev, items };
+          });
+        },
+        remove: (data) => {
+          const { symbol } = data as { symbol: string };
+          known.delete(symbol);
+          setList((prev) => ({ ...prev, items: prev.items.filter((x) => x.symbol !== symbol) }));
+        },
+        settings: (data) => setList((prev) => ({ ...prev, settings: data as WatchSettings })),
+        engine: (data) => {
+          const engine = data as WatchEngine;
+          setList((prev) => ({ ...prev, engine, clockOffset: engine.now ? Date.now() - engine.now : prev.clockOffset }));
+        },
+        alert: (data) => notify(data as WatchAlert),
+      },
+      (up) => {
+        if (!up) setList((prev) => (prev.connected ? { ...prev, connected: false } : prev));
+      },
+    );
   }, []);
 
   return list;
@@ -245,13 +246,15 @@ export function sortWatchItems(items: WatchItem[], { key, descending }: WatchSor
   });
 }
 
-/** Ticks every `ms` so "12S AGO" labels and countdowns stay current. */
-export function useNow(ms = 1000): number {
+/** Ticks every `ms` so "12S AGO" labels and countdowns stay current; stops while `enabled` is false. */
+export function useNow(ms = 1000, enabled = true): number {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
+    if (!enabled) return;
+    setNow(Date.now());
     const timer = setInterval(() => setNow(Date.now()), ms);
     return () => clearInterval(timer);
-  }, [ms]);
+  }, [ms, enabled]);
   return now;
 }
 

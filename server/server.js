@@ -8,10 +8,47 @@ const { getQuote } = require("./quotes");
 const legend = require("./legend");
 const { getNews } = require("./news");
 const watchlist = require("./watchlist");
+const screener = require("./screener");
 
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: "1mb" }));
+
+// Connection check for the page's signal icon: answering at all shows the page can reach this
+// server; `internet` shows whether this server can reach the web (market data, news). The probe
+// is cached so pages polling often don't add traffic.
+const PROBE_URL = "https://www.gstatic.com/generate_204";
+const PROBE_EVERY_MS = 15_000;
+const SLOW_PROBE_MS = 1500;
+let internet = { state: "unknown", ms: null, checkedAt: 0 };
+let probing = null;
+
+function probeInternet() {
+  if (!probing) {
+    const started = Date.now();
+    probing = fetch(PROBE_URL, { method: "HEAD", cache: "no-store", signal: AbortSignal.timeout(5000) })
+      .then(() => {
+        const ms = Date.now() - started;
+        internet = { state: ms > SLOW_PROBE_MS ? "slow" : "ok", ms, checkedAt: Date.now() };
+      })
+      .catch(() => {
+        internet = { state: "down", ms: null, checkedAt: Date.now() };
+      })
+      .finally(() => {
+        probing = null;
+      });
+  }
+  return probing;
+}
+
+app.get("/health", async (req, res) => {
+  if (Date.now() - internet.checkedAt > PROBE_EVERY_MS) {
+    // Answer straight away with the last result unless there isn't one yet
+    const probe = probeInternet();
+    if (!internet.checkedAt) await probe;
+  }
+  res.set("Cache-Control", "no-store").json({ ok: true, internet, now: Date.now() });
+});
 
 app.post("/analyze", async (req, res) => {
   const { symbol, state } = req.body;
@@ -59,6 +96,7 @@ app.get("/favicon", async (req, res) => {
 // Scans run by hand take priority: the watchlist waits while one is using Legend
 let scansInProgress = 0;
 watchlist.setScanCheck(() => scansInProgress > 0);
+screener.setScanCheck(() => scansInProgress > 0);
 
 // Legend analysis of a stock's momentum setup, informed by its recent news
 app.post("/legend", async (req, res) => {
@@ -77,6 +115,7 @@ app.post("/legend", async (req, res) => {
   } finally {
     scansInProgress--;
     watchlist.poke();
+    screener.poke();
   }
 });
 
@@ -132,6 +171,20 @@ app.post("/watchlist/:symbol/refresh", (req, res) => {
 app.put("/watchlist/settings", (req, res) => {
   try {
     res.json(watchlist.updateSettings(req.body || {}));
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+// Stock screener: Legend's continuous hunt for momentum setups (paused by default)
+app.get("/screener", (req, res) => res.json(screener.snapshot()));
+app.get("/screener/stream", (req, res) => screener.connect(req, res));
+app.post("/screener/scan", (req, res) => {
+  res.status(screener.scanNow() ? 202 : 409).end();
+});
+app.put("/screener/settings", (req, res) => {
+  try {
+    res.json(screener.updateSettings(req.body || {}));
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message });
   }

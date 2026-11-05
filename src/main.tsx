@@ -7,6 +7,7 @@ import "./styles/ui.css";
 import "./styles/screens.css";
 import "./styles/watchlist.css";
 import "./styles/notifications.css";
+import "./styles/screener.css";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

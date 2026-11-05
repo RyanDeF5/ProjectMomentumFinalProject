@@ -110,6 +110,70 @@ Keep it tight: the reader is scanning quickly between trades.
 RULES: use only the data and sources given; if floatShares is 0 the float is unknown; tickers STCK
 and TEST are test stocks with no real news.`;
 
+// ---------- Screener mode ----------
+// The stock screener sends Legend the day's movers that its scanner flagged, with the five
+// momentum pillars already checked. Legend grades each as a day-trade setup on top of the normal
+// read (same score, so screener and scan results compare).
+
+const SETUP_GRADES = ["A+", "A", "B", "C", "F"];
+const CATALYST_TYPES = [
+  "fda_clinical",
+  "earnings",
+  "contract_partnership",
+  "merger_acquisition",
+  "product_launch",
+  "analyst_action",
+  "uplisting_index",
+  "sector_sympathy",
+  "financing_offering",
+  "theme_hype",
+  "no_news",
+  "other",
+];
+
+const SCREENER_PROMPT = `${SYSTEM_PROMPT}
+
+SCREENER MODE: this stock was surfaced by the STOCK SCREENER, which scans the market for the day's
+movers. You are the final filter for a day trader who wants only the best setups. Be demanding:
+an A+ is rare and the trader acts on it.
+
+The five pillars of a day-trading momentum setup (the scanner has checked them; see SCREENER CHECKS):
+  1. Price between $1 and $10 (to about $20 is acceptable)
+  2. Float under 10 million shares (under 20 million is acceptable)
+  3. Up at least 25% on the day (or in pre-market)
+  4. Relative volume of 10x or more (5x can be acceptable early in the session)
+  5. A fresh, specific news catalyst from the last day
+
+Judge the CATALYST QUALITY, which the scanner cannot:
+  Strongest: FDA approval or strong trial data, earnings beat with raised guidance, a big contract
+  or partnership with a known company, a buyout/merger at a premium, uplisting to a major exchange.
+  Weak: recaps of the move ("shares jump"), sector sympathy only, AI/crypto buzzwords with no
+  numbers, vague press releases, old news.
+RED FLAGS that should sink the grade: an offering, ATM, registered direct or warrants (dilution),
+  a recent reverse split, going-concern or delisting notices, no news at all on a huge move
+  (pump risk), an exhausted run (already up several hundred percent with fading volume).
+
+ALSO DECIDE:
+setupGrade: A+ (all five pillars, a strong fresh catalyst, no red flags), A (strong, one pillar a
+  little short), B (tradeable with caution), C (weak or late), F (avoid).
+catalystType: the kind of catalyst in the news (no_news if there is none).
+whyNow: why it is moving today, at most 14 words.
+tradePlan: what would confirm the setup and what would invalidate it, using the levels given
+  (previous close, open, day high, day low); at most 24 words. No buy/sell instructions, no price
+  targets: describe what to watch.`;
+
+const SCREENER_SCHEMA = {
+  ...RESPONSE_SCHEMA,
+  properties: {
+    ...RESPONSE_SCHEMA.properties,
+    setupGrade: { type: "string", enum: SETUP_GRADES },
+    catalystType: { type: "string", enum: CATALYST_TYPES },
+    whyNow: { type: "string" },
+    tradePlan: { type: "string" },
+  },
+  required: [...RESPONSE_SCHEMA.required, "setupGrade", "catalystType", "whyNow", "tradePlan"],
+};
+
 const round = (value, digits = 2) => (Number.isFinite(value) ? Number(value.toFixed(digits)) : null);
 
 /** Derive the metrics Legend reasons about from the raw quote. */
@@ -221,22 +285,8 @@ function assemble(raw, metrics, quant, news) {
   };
 }
 
-/**
- * Ask Legend to analyze a stock with its recent news.
- * Resolves to the analysis plus { model, metrics, tokens }.
- */
-async function analyze(stock, marketState, news = []) {
-  const model = await resolveModel();
-  const metrics = buildMetrics(stock, marketState);
-  const quant = quantScore(metrics);
-
-  const userMessage = [
-    `METRICS:\n${JSON.stringify(metrics, null, 2)}`,
-    `QUANT SCORE (from the numbers alone): ${quant.total} / 1600  [${quant.components.map((c) => `${c.label} ${c.points}/${c.max}`).join(", ")}]`,
-    `SUGGESTED RATING from price action: ${suggestedRating(metrics)}`,
-    newsBlock(news),
-  ].join("\n\n");
-
+/** Send one request to LM Studio with a strict JSON schema; returns the parsed reply and token usage. */
+async function callModel(model, system, user, schema, name) {
   const res = await fetch(`${LEGEND_URL}/chat/completions`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -244,15 +294,12 @@ async function analyze(stock, marketState, news = []) {
     body: JSON.stringify({
       model,
       temperature: 0.2,
-      max_tokens: 1200,
+      max_tokens: 1400,
       messages: [
-        { role: "system", content: SYSTEM_PROMPT },
-        { role: "user", content: userMessage },
+        { role: "system", content: system },
+        { role: "user", content: user },
       ],
-      response_format: {
-        type: "json_schema",
-        json_schema: { name: "legend_analysis", strict: true, schema: RESPONSE_SCHEMA },
-      },
+      response_format: { type: "json_schema", json_schema: { name, strict: true, schema } },
     }),
   });
 
@@ -264,7 +311,51 @@ async function analyze(stock, marketState, news = []) {
   const content = body?.choices?.[0]?.message?.content;
   // Tokens are spent even if the reply turns out unusable, so count them first
   const tokens = usage.record(body?.usage);
-  return { ...assemble(extractJson(content), metrics, quant, news), model, metrics, tokens };
+  return { raw: extractJson(content), tokens };
+}
+
+function baseMessage(metrics, quant, news) {
+  return [
+    `METRICS:\n${JSON.stringify(metrics, null, 2)}`,
+    `QUANT SCORE (from the numbers alone): ${quant.total} / 1600  [${quant.components.map((c) => `${c.label} ${c.points}/${c.max}`).join(", ")}]`,
+    `SUGGESTED RATING from price action: ${suggestedRating(metrics)}`,
+    newsBlock(news),
+  ];
+}
+
+/**
+ * Ask Legend to analyze a stock with its recent news.
+ * Resolves to the analysis plus { model, metrics, tokens }.
+ */
+async function analyze(stock, marketState, news = []) {
+  const model = await resolveModel();
+  const metrics = buildMetrics(stock, marketState);
+  const quant = quantScore(metrics);
+  const { raw, tokens } = await callModel(model, SYSTEM_PROMPT, baseMessage(metrics, quant, news).join("\n\n"), RESPONSE_SCHEMA, "legend_analysis");
+  return { ...assemble(raw, metrics, quant, news), model, metrics, tokens };
+}
+
+/** The screener's grading fields, validated. */
+function screenerExtras(raw) {
+  return {
+    setupGrade: pick(raw.setupGrade, SETUP_GRADES, "C"),
+    catalystType: pick(raw.catalystType, CATALYST_TYPES, "other"),
+    whyNow: text(raw.whyNow).replace(/\.$/, ""),
+    tradePlan: text(raw.tradePlan),
+  };
+}
+
+/**
+ * Screener mode: grade a mover the scanner flagged. `checks` describes the five pillars, the
+ * day's levels and how the stock was found. Resolves to the normal analysis plus `screener`.
+ */
+async function screen(stock, marketState, news = [], checks = {}) {
+  const model = await resolveModel();
+  const metrics = buildMetrics(stock, marketState);
+  const quant = quantScore(metrics);
+  const user = [...baseMessage(metrics, quant, news), `SCREENER CHECKS (from the scanner):\n${JSON.stringify(checks, null, 2)}`].join("\n\n");
+  const { raw, tokens } = await callModel(model, SCREENER_PROMPT, user, SCREENER_SCHEMA, "legend_screener");
+  return { ...assemble(raw, metrics, quant, news), screener: screenerExtras(raw), model, metrics, tokens };
 }
 
 /** Connection check for the Settings screen. */
@@ -299,4 +390,20 @@ function example(stock, marketState, news = []) {
   return { ...assemble(raw, metrics, quant, news), model: "dry-run", metrics };
 }
 
-module.exports = { analyze, status, example, usageSummary: usage.summary, LEGEND_URL };
+/** LEGEND DRY RUN for the screener: the canned read plus a grade from the pillars alone. */
+function exampleScreen(stock, marketState, news = [], checks = {}) {
+  const base = example(stock, marketState, news);
+  const passed = Array.isArray(checks.pillars) ? checks.pillars.filter((p) => p.pass).length : 0;
+  const setupGrade = passed >= 5 ? "A+" : passed === 4 ? "A" : passed === 3 ? "B" : passed === 2 ? "C" : "F";
+  return {
+    ...base,
+    screener: {
+      setupGrade,
+      catalystType: news.length ? "other" : "no_news",
+      whyNow: "Example: why the stock is moving today",
+      tradePlan: "Example: what would confirm the setup and what would invalidate it",
+    },
+  };
+}
+
+module.exports = { analyze, screen, status, example, exampleScreen, usageSummary: usage.summary, LEGEND_URL };

@@ -22,8 +22,9 @@ import {
 } from "../lib/watchlist";
 import { Button } from "../ui/Button";
 import { Dialog } from "../ui/Dialog";
+import { Diamond } from "../ui/Diamond";
 import { Dropdown } from "../ui/Dropdown";
-import { ChevronDownIcon, RefreshIcon, SearchIcon } from "../ui/Icons";
+import { ChevronDownIcon, RefreshIcon, SearchIcon, TimerIcon } from "../ui/Icons";
 import { Reveal } from "../ui/Reveal";
 import { SectionTitle } from "../ui/SectionTitle";
 
@@ -49,6 +50,11 @@ const DIRECTION_LABELS: Record<WatchSortKey, [string, string]> = {
   updated: ["NEWEST FIRST", "OLDEST FIRST"],
 };
 
+function countdown(ms: number): string {
+  const s = Math.max(0, Math.ceil(ms / 1000));
+  return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+}
+
 /** The watchlist, laid out like the game's garage: class filters, a class rail and a grid of cards. */
 export function WatchlistPage({
   screenRef,
@@ -56,7 +62,7 @@ export function WatchlistPage({
   watchlist,
   onOpenItem,
 }: WatchlistPageProps) {
-  const now = useNow(1000);
+  const now = useNow(1000, active);
   const sort = useWatchSort();
   const [filter, setFilter] = useState<Filter>("ALL");
   const [ticker, setTicker] = useState("");
@@ -85,14 +91,15 @@ export function WatchlistPage({
   const groups = grouped.length ? grouped : [{ label: filter, items: [] }];
 
   const serverNow = now - clockOffset;
+  // Status chip by the title; the update's progress shows in the top bar
   let status: string;
   if (!connected) status = "CONNECTING…";
   else if (engine.state === "updating") status = `UPDATING ${engine.symbol}`;
   else if (engine.state === "waiting") status = "WAITING FOR YOUR SCAN";
   else if (engine.state === "paused") status = "UPDATES PAUSED";
-  else if (engine.nextAt && engine.symbol)
-    status = `NEXT: ${engine.symbol} IN ${Math.max(0, Math.ceil((engine.nextAt - serverNow) / 1000))}S`;
+  else if (engine.nextAt && engine.symbol) status = `NEXT: ${engine.symbol} ${countdown(engine.nextAt - serverNow)}`;
   else status = items.length ? "UP TO DATE" : "READY";
+  const updating = connected && engine.state === "updating";
 
   async function add() {
     const symbol = ticker.trim().toUpperCase();
@@ -141,6 +148,10 @@ export function WatchlistPage({
             </SectionTitle>
             <Reveal kind="panel" className="garage__count">
               {items.length}/{limit} STOCKS
+            </Reveal>
+            <Reveal kind="panel" wash="pink" className={`garage__state${updating ? " is-busy" : ""}`}>
+              {updating ? <Diamond size={16} /> : <TimerIcon size={17} />}
+              <span aria-live="polite">{status}</span>
             </Reveal>
           </div>
 
@@ -233,34 +244,22 @@ export function WatchlistPage({
               value={settings.interval}
               onChange={(interval) => void updateWatchSettings({ interval })}
             />
+            {items.length > 0 && (
+              <button
+                type="button"
+                className="garage__dir garage__all"
+                onClick={() => {
+                  sfx.play("tap");
+                  items.forEach((item) => void refreshWatchItem(item.symbol));
+                }}
+              >
+                <RefreshIcon size={14} />
+                UPDATE ALL NOW
+              </button>
+            )}
           </div>
         </Reveal>
 
-        <Reveal kind="fade" className="garage__status">
-          <span
-            className={`garage__pulse is-${connected ? engine.state : "offline"}`}
-            aria-hidden
-          />
-          <span className="garage__status-text" aria-live="polite">
-            {status}
-          </span>
-          <span className="garage__status-note">
-            EACH UPDATE: LIVE QUOTE · NEWS SEARCH · LEGEND RE-SCORE
-          </span>
-          {items.length > 0 && (
-            <button
-              type="button"
-              className="garage__all"
-              onClick={() => {
-                sfx.play("tap");
-                items.forEach((item) => void refreshWatchItem(item.symbol));
-              }}
-            >
-              <RefreshIcon size={15} />
-              UPDATE ALL NOW
-            </button>
-          )}
-        </Reveal>
 
         <div className="garage__body">
           {groups.map((group) => (

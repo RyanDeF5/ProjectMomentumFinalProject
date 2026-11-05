@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
 import type { MarketState } from "./types";
 
 export interface ClockData {
@@ -97,19 +97,43 @@ export function readClock(now = new Date()): ClockData {
   };
 }
 
-// Ticks every 100ms like the original update loop, re-rendering only when the second changes.
-export function useClock(): ClockData {
-  const [clock, setClock] = useState(readClock);
+// One shared clock for the whole app: a single 100ms check that only notifies subscribers when the
+// second changes. Components read just what they show (the time, or only the market session), so
+// the rest of the app no longer re-renders every second.
+let current = readClock();
+const listeners = new Set<() => void>();
+let timer: ReturnType<typeof setInterval> | null = null;
 
-  useEffect(() => {
-    const id = setInterval(() => {
+function subscribe(fn: () => void) {
+  listeners.add(fn);
+  if (!timer) {
+    timer = setInterval(() => {
       const next = readClock();
-      setClock((prev) =>
-        prev.seconds === next.seconds && prev.minutes === next.minutes ? prev : next,
-      );
+      if (next.seconds === current.seconds && next.minutes === current.minutes) return;
+      current = next;
+      listeners.forEach((l) => l());
     }, 100);
-    return () => clearInterval(id);
-  }, []);
+  }
+  return () => {
+    listeners.delete(fn);
+    if (!listeners.size && timer) {
+      clearInterval(timer);
+      timer = null;
+    }
+  };
+}
 
-  return clock;
+/** The full clock, re-rendering every second: only for components that show the time. */
+export function useClock(): ClockData {
+  return useSyncExternalStore(subscribe, () => current);
+}
+
+/** Only the market session, re-rendering when it changes (a few times a day). */
+export function useMarketState(): MarketState {
+  return useSyncExternalStore(subscribe, () => current.marketState);
+}
+
+/** The market session right now, for code outside rendering (e.g. starting a scan). */
+export function marketStateNow(): MarketState {
+  return getMarketState(new Date());
 }

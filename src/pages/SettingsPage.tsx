@@ -10,6 +10,7 @@ import { LegendEmblem } from "../ui/LegendEmblem";
 import { Reveal } from "../ui/Reveal";
 import { SectionTitle } from "../ui/SectionTitle";
 import { testNotification, testTokenDrop } from "../lib/notify";
+import { testConnection } from "../lib/connection";
 import { PHOTO_CREDITS } from "../lib/exchanges";
 import { Segmented } from "../ui/Segmented";
 import { Slider } from "../ui/Slider";
@@ -152,11 +153,17 @@ export function SettingsPage({ screenRef, active, dryRun, onDryRunChange }: Sett
                 <Button variant="normal" sound={null} onClick={() => testNotification("class-up")}>
                   RANKED UP
                 </Button>
+                <Button variant="normal" sound={null} onClick={() => testNotification("setup")}>
+                  NEW SETUP
+                </Button>
                 <Button variant="normal" sound={null} onClick={testTokenDrop}>
                   TOKEN DROP
                 </Button>
                 <Button variant="normal" sound={null} onClick={() => setPreview(true)}>
                   EXCHANGE REVEAL
+                </Button>
+                <Button variant="normal" sound={null} onClick={() => testConnection("weak")}>
+                  WEAK CONNECTION
                 </Button>
               </div>
             </Reveal>

@@ -6,7 +6,7 @@ import type { LegendState } from "../components/LegendPanel";
 import { LastScanCard } from "../components/LastScanCard";
 import { WatchRail } from "../components/WatchRail";
 import { NumberField } from "../components/NumberField";
-import type { ClockData } from "../lib/clock";
+import { useClock, useMarketState } from "../lib/clock";
 import { getRandomInt, parseNumber } from "../lib/numbers";
 import { useSettings } from "../lib/settings";
 import type { StockData, WatchItem } from "../lib/types";
@@ -23,7 +23,6 @@ import { SectionTitle } from "../ui/SectionTitle";
 interface StartPageProps {
   screenRef: Ref<HTMLElement>;
   active: boolean;
-  clock: ClockData;
   buyButtonsEnabled: boolean;
   dryRun: boolean;
   onSuperSubmit: (symbol: string, volumeFromField: number) => void;
@@ -57,10 +56,46 @@ function readDevOpen(): boolean {
   }
 }
 
+/** Greeting, date and the big HUD clock: the only part of the home screen that ticks every second. */
+function HeroClock() {
+  const clock = useClock();
+  return (
+    <div className="home__center">
+      <p className="hero__welcome">
+        <RevealText dir="rtl">
+          WELCOME TO ALPHA 9: <span className="pink">LEGENDS</span>
+        </RevealText>
+      </p>
+      <h1 className="hero__title">
+        <RevealText>{clock.timeOfDay.trim().toUpperCase()}</RevealText>
+      </h1>
+      <p className="hero__date">
+        <RevealText dir="rtl">{clock.date.toUpperCase()}</RevealText>
+      </p>
+
+      <div className="hud">
+        <Reveal kind="slide" className="hud__readout" wash="none">
+          <span className="hud__unit">{clock.anteMeridiem}</span>
+          <span className="hud__big" aria-label={`${clock.hours}:${clock.minutes}:${clock.seconds} ${clock.anteMeridiem}`}>
+            {clock.hours}:{clock.minutes}
+            <span className="hud__seconds">:{clock.seconds}</span>
+          </span>
+        </Reveal>
+        {clock.nextSession.label && (
+          <Reveal kind="panel" wash="pink" className="hud__timer">
+            <TimerIcon />
+            <span className="hud__timer-label">{clock.nextSession.label}</span>
+            <span className="hud__timer-value">{clock.nextSession.remaining}</span>
+          </Reveal>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function StartPage({
   screenRef,
   active,
-  clock,
   buyButtonsEnabled,
   dryRun,
   onSuperSubmit,
@@ -83,7 +118,8 @@ export function StartPage({
   const manualSymbolRef = useRef<HTMLInputElement>(null);
 
   const setField = (key: keyof typeof emptyManualFields) => (value: string) => setFields((prev) => ({ ...prev, [key]: value }));
-  const preMarket = clock.marketState === "PRE-MARKET";
+  const marketState = useMarketState();
+  const preMarket = marketState === "PRE-MARKET";
 
   function rejectEmpty(input: HTMLInputElement | null) {
     sfx.play("tap");
@@ -175,36 +211,7 @@ export function StartPage({
             </Reveal>
           </div>
 
-          <div className="home__center">
-            <p className="hero__welcome">
-              <RevealText dir="rtl">
-                WELCOME TO ALPHA 9: <span className="pink">LEGENDS</span>
-              </RevealText>
-            </p>
-            <h1 className="hero__title">
-              <RevealText>{clock.timeOfDay.trim().toUpperCase()}</RevealText>
-            </h1>
-            <p className="hero__date">
-              <RevealText dir="rtl">{clock.date.toUpperCase()}</RevealText>
-            </p>
-
-            <div className="hud">
-              <Reveal kind="slide" className="hud__readout" wash="none">
-                <span className="hud__unit">{clock.anteMeridiem}</span>
-                <span className="hud__big" aria-label={`${clock.hours}:${clock.minutes}:${clock.seconds} ${clock.anteMeridiem}`}>
-                  {clock.hours}:{clock.minutes}
-                  <span className="hud__seconds">:{clock.seconds}</span>
-                </span>
-              </Reveal>
-              {clock.nextSession.label && (
-                <Reveal kind="panel" wash="pink" className="hud__timer">
-                  <TimerIcon />
-                  <span className="hud__timer-label">{clock.nextSession.label}</span>
-                  <span className="hud__timer-value">{clock.nextSession.remaining}</span>
-                </Reveal>
-              )}
-            </div>
-          </div>
+          <HeroClock />
         </div>
 
         <aside className="home__pane" aria-label="Quick scan">
@@ -256,7 +263,7 @@ export function StartPage({
               </Field>
               <Button type="submit" variant="buy" size="lg" sound={null} disabled={!buyButtonsEnabled} className="scan__submit">
                 SUBMIT
-                {clock.marketState !== "MARKET CLOSED" && <Glint idle />}
+                {marketState !== "MARKET CLOSED" && <Glint idle />}
               </Button>
             </form>
           </Reveal>

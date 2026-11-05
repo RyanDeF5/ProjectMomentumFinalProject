@@ -36,11 +36,13 @@ let testSeq = 0;
 /** Sample notifications for the Settings screen's test buttons. */
 export function testNotification(kind: WatchAlert["kind"], symbol = "NVDA", name = "NVIDIA Corporation") {
   const base = { id: `test-${Date.now()}-${++testSeq}`, symbol, name, at: Date.now() };
-  notify(
-    kind === "bullish"
-      ? { ...base, kind, title: `${name} beats estimates and raises full-year guidance`, publisher: "Reuters", impact: "A fresh catalyst with real numbers behind it", more: 0 }
-      : { ...base, kind, from: "B", to: "A", score: 1482, delta: 236 },
-  );
+  if (kind === "bullish") {
+    notify({ ...base, kind, title: `${name} beats estimates and raises full-year guidance`, publisher: "Reuters", impact: "A fresh catalyst with real numbers behind it", more: 0 });
+  } else if (kind === "setup") {
+    notify({ ...base, kind, grade: "A+", score: 1684, change: 48.6, whyNow: "FDA approval for its lead drug, on 18x relative volume" });
+  } else {
+    notify({ ...base, kind, from: "B", to: "A", score: 1482, delta: 236 });
+  }
 }
 
 // ---------- Token drop (the top bar's A-token animation), for testing ----------

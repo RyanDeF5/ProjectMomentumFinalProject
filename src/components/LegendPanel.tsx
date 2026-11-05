@@ -153,12 +153,24 @@ export function LegendPanel({ legend, symbol }: { legend: LegendState; symbol: s
             <Reveal kind="slide" wash="none" as="p" className="legend__headline">
               {legend.response.headline}
             </Reveal>
+            {legend.response.screener && (
+              <div className="legend__setup">
+                <span className={`legend__grade is-${legend.response.screener.setupGrade === "A+" ? "aplus" : legend.response.screener.setupGrade.toLowerCase()}`}>
+                  {legend.response.screener.setupGrade}
+                </span>
+                <span className="legend__setup-body">
+                  <span className="legend__setup-label">SCREENER SETUP · {legend.response.screener.catalystType.replace(/_/g, " ").toUpperCase()}</span>
+                  <span className="legend__setup-text">{legend.response.screener.whyNow}</span>
+                </span>
+              </div>
+            )}
             <p className="legend__section">MOMENTUM READ:</p>
             <ul className="legend__rows">
               {legend.response.newsRead && <Row label={newsLabel(legend.response)} text={legend.response.newsRead} news />}
               <Row label="CONVICTION" text={legend.response.conviction} />
               <Row label="EFFICIENCY" text={legend.response.efficiency} />
               <Row label="RISKS" text={legend.response.risks} risk />
+              {legend.response.screener?.tradePlan && <Row label="WHAT TO WATCH" text={legend.response.screener.tradePlan} />}
             </ul>
             <p className="legend__model">{legend.response.model === "dry-run" ? "DRY RUN · EXAMPLE ANALYSIS" : `MODEL · ${legend.response.model}`}</p>
           </div>

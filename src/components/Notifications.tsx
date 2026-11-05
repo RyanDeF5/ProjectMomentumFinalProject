@@ -101,6 +101,30 @@ function RankBanner({ alert, leaving }: { alert: Extract<WatchAlert, { kind: "cl
   );
 }
 
+/** A new A/A+ setup on the stock screener, in the same banner style. */
+function SetupBanner({ alert, leaving }: { alert: Extract<WatchAlert, { kind: "setup" }>; leaving: boolean }) {
+  return (
+    <div className={`nbanner${leaving ? " is-leaving" : ""}`} role="status" aria-live="polite">
+      <div className="nbanner__body">
+        <span className="nbanner__title">NEW {alert.grade} SETUP</span>
+        <span className="nbanner__text">
+          {alert.symbol}: {alert.whyNow.toUpperCase()}. THE STOCK SCREENER RANKS IT {alert.grade}; OPEN IT FOR LEGEND'S FULL READ.
+        </span>
+      </div>
+      <div className="nbanner__art" aria-hidden>
+        <LegendEmblem size={58} className="nbanner__emblem" />
+        <span className="nbanner__classes">
+          <span className="nbanner__class is-to is-grade">{alert.grade}</span>
+        </span>
+      </div>
+      <div className="nbanner__side">
+        <span className="nbanner__delta">{alert.change >= 0 ? `+${alert.change.toFixed(1)}%` : `${alert.change.toFixed(1)}%`}</span>
+        <span className="nbanner__total">{alert.score.toLocaleString("en-US")}</span>
+      </div>
+    </div>
+  );
+}
+
 /** Shows queued notifications one at a time; click to clear early. */
 export function Notifications({ onOpen }: { onOpen?: (symbol: string) => void }) {
   const alert = useCurrentNotification();
@@ -139,7 +163,13 @@ export function Notifications({ onOpen }: { onOpen?: (symbol: string) => void })
         if (alert && !alert.id.startsWith("test-")) onOpen?.(alert.symbol);
       }}
     >
-      {alert.kind === "bullish" ? <GoalNotice alert={alert} leaving={leaving} /> : <RankBanner alert={alert} leaving={leaving} />}
+      {alert.kind === "bullish" ? (
+        <GoalNotice alert={alert} leaving={leaving} />
+      ) : alert.kind === "setup" ? (
+        <SetupBanner alert={alert} leaving={leaving} />
+      ) : (
+        <RankBanner alert={alert} leaving={leaving} />
+      )}
     </div>
   );
 }

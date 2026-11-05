@@ -145,3 +145,22 @@ export const CandlesIcon = ({ size = 26 }: IconProps) => (
     <path d="M18.2 6h1.6v4H22v8h-2.2v4h-1.6v-4H16v-8h2.2z" />
   </svg>
 );
+
+/**
+ * Signal strength with a red warning badge, for a weak or lost connection. `bars` (0-3) is how many
+ * arcs are lit; the rest are dimmed.
+ */
+export const SignalIcon = ({ size = 30, bars = 1 }: IconProps & { bars?: number }) => {
+  const arc = (r: number) => `M${14 - r * 0.7071} ${25 - r * 0.7071}A${r} ${r} 0 0 1 ${14 + r * 0.7071} ${25 - r * 0.7071}`;
+  return (
+    <svg width={size} height={size} viewBox="0 0 32 32" aria-hidden fill="none">
+      {[6.5, 12, 17.5].map((r, i) => (
+        <path key={r} d={arc(r)} stroke="currentColor" strokeWidth="3.4" opacity={i < bars ? 1 : 0.28} />
+      ))}
+      <rect x="11.6" y="22.6" width="4.8" height="4.8" fill="currentColor" opacity={bars > 0 ? 1 : 0.28} />
+      <circle cx="25" cy="24" r="6.6" fill="#ff1f3d" stroke="#0a1426" strokeWidth="1.6" />
+      <rect x="23.9" y="19.6" width="2.2" height="5.6" fill="#fff" />
+      <rect x="23.9" y="26.3" width="2.2" height="2.2" fill="#fff" />
+    </svg>
+  );
+};

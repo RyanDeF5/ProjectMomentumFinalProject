@@ -7,25 +7,29 @@ import { ModeBar } from "./components/ModeBar";
 import { Notifications } from "./components/Notifications";
 import { TopBar } from "./components/TopBar";
 import { analyzeWithLegend, exampleLegendAnalysis, fetchNews, fetchStockData, fetchTokenUsage } from "./lib/api";
-import { useClock } from "./lib/clock";
+import { marketStateNow, useMarketState } from "./lib/clock";
 import { markTitleScreenSeen, shouldShowTitleScreen } from "./lib/settings";
-import type { NewsItem, StockData, TokenUsage, WatchItem } from "./lib/types";
+import type { NewsItem, ScreenerEntry, StockData, TokenUsage, WatchItem } from "./lib/types";
+import { useConnection } from "./lib/connection";
+import type { TopJob } from "./lib/jobProgress";
 import { addToWatchlist, removeFromWatchlist, updateWatchSettings, useWatchlist } from "./lib/watchlist";
 import { LoadingPage, type LoadingSteps } from "./pages/LoadingPage";
 import type { NewsState } from "./components/NewsStrip";
 import { SettingsPage } from "./pages/SettingsPage";
 import { TokensPage } from "./pages/TokensPage";
 import { WatchlistPage } from "./pages/WatchlistPage";
+import { ScreenerPage } from "./pages/ScreenerPage";
+import { updateScreenerSettings, useScreener } from "./lib/screener";
 import { Splash } from "./pages/Splash";
 import { StartPage } from "./pages/StartPage";
 import { SummaryPage } from "./pages/SummaryPage";
 import { Dialog } from "./ui/Dialog";
 
-type Screen = "start" | "loading" | "summary" | "settings" | "tokens" | "watchlist";
+type Screen = "start" | "loading" | "summary" | "settings" | "tokens" | "watchlist" | "screener";
 
 // The bottom mode bar belongs to the home screen and the watchlist: it stays put while you move
 // between them, and steps aside on every other screen
-const MODE_BAR_SCREENS: ReadonlySet<Screen> = new Set(["start", "watchlist"]);
+const MODE_BAR_SCREENS: ReadonlySet<Screen> = new Set(["start", "watchlist", "screener"]);
 
 // Keep the loading screen up long enough to read, like the game's pre-race screen
 const MIN_LOADING_MS = 1400;
@@ -52,7 +56,8 @@ const showTitleScreenOnLoad = shouldShowTitleScreen();
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export default function App() {
-  const clock = useClock();
+  // Only the session (it changes a few times a day): the clock itself lives in the components that show it
+  const marketState = useMarketState();
 
   const [screen, setScreen] = useState<Screen>("start");
   const [showSplash, setShowSplash] = useState(showTitleScreenOnLoad);
@@ -83,6 +88,7 @@ export default function App() {
     settings: useRef<HTMLElement>(null),
     tokens: useRef<HTMLElement>(null),
     watchlist: useRef<HTMLElement>(null),
+    screener: useRef<HTMLElement>(null),
   };
   // Where Settings/Tokens were opened from, so Back returns there
   const returnTo = useRef<Screen>("start");
@@ -105,9 +111,22 @@ export default function App() {
     }, USAGE_AFTER_UPDATE_MS);
   });
 
-  // Watchlist updates follow the LEGEND DRY RUN setting too
+  // The stock screener's board, live (it only scans while a page is connected and it isn't paused)
+  const screener = useScreener();
+  const connection = useConnection(watchlist.connected && screener.connected);
+
+  // Each grade Legend adds to the board spent tokens: pick them up as they land (debounced)
+  const gradedKey = screener.board.reduce((n, e) => n + (e.analyzedAt ?? 0), 0);
+  useEffect(() => {
+    if (!gradedKey) return;
+    const timer = setTimeout(refreshUsage, USAGE_AFTER_UPDATE_MS);
+    return () => clearTimeout(timer);
+  }, [gradedKey]);
+
+  // Watchlist updates and screener grades follow the LEGEND DRY RUN setting too
   useEffect(() => {
     updateWatchSettings({ dryRun }).catch((err) => console.error("Watchlist settings:", err));
+    updateScreenerSettings({ dryRun }).catch((err) => console.error("Screener settings:", err));
   }, [dryRun]);
 
   function refreshUsage() {
@@ -201,8 +220,8 @@ export default function App() {
     setLegend({ status: "working" });
     try {
       const response = dryRun
-        ? await exampleLegendAnalysis(stockData, clock.marketState, stories)
-        : await analyzeWithLegend(stockData, clock.marketState, stories);
+        ? await exampleLegendAnalysis(stockData, marketStateNow(), stories)
+        : await analyzeWithLegend(stockData, marketStateNow(), stories);
       if (requestId === legendRequestRef.current) setLegend({ status: "done", response });
       return true;
     } catch (err) {
@@ -284,7 +303,8 @@ export default function App() {
 
   function superCalculate(symbol: string, volumeFromField: number) {
     void scan(symbol, async () => {
-      const data = await fetchStockData(symbol, clock.marketState);
+      const state = marketStateNow();
+      const data = await fetchStockData(symbol, state);
       // The loading screen shows the exchange's building as soon as the quote is in
       setLoadingExchange({ code: data.exchange, name: data.exchangeName });
       loadingExchangeRef.current = data.exchange || data.exchangeName;
@@ -293,7 +313,7 @@ export default function App() {
         fullName: data.fullName,
         currentPrice: data.currentPrice,
         lastClose: data.lastClose,
-        volume: clock.marketState === "PRE-MARKET" ? volumeFromField : data.currentVolume,
+        volume: state === "PRE-MARKET" ? volumeFromField : data.currentVolume,
         averageVolume: data.averageVolume,
         float: data.float,
       };
@@ -310,6 +330,30 @@ export default function App() {
     setSummaryRun((run) => run + 1);
     summaryFrom.current = screen === "watchlist" ? "watchlist" : "start";
     void navigate("summary", "switch");
+  }
+
+  /** Open a screener find's full read (Legend's screener grade) on the summary. */
+  function openScreenerEntry(entry: ScreenerEntry) {
+    if (!entry.ai) return;
+    legendRequestRef.current++;
+    setStock({
+      symbol: entry.symbol,
+      fullName: entry.name,
+      currentPrice: entry.price,
+      lastClose: entry.prevClose,
+      volume: entry.volume,
+      averageVolume: entry.avgVolume,
+      float: entry.float,
+    });
+    setLegend({ status: "done", response: entry.ai });
+    setNews({ status: "done", items: entry.news });
+    setSummaryRun((run) => run + 1);
+    summaryFrom.current = "screener";
+    void navigate("summary", "switch");
+  }
+
+  function openScreener() {
+    void navigate("screener", "switch");
   }
 
   function openWatchlist() {
@@ -333,14 +377,40 @@ export default function App() {
     void navigate(target, "switch");
   }
 
+  // The background job for the top bar: the one belonging to this screen if it's running, else
+  // a screener update, else a watchlist update
+  const jobs: TopJob[] = [];
+  if (screener.connected && ["scanning", "analyzing", "waiting"].includes(screener.engine.state)) {
+    jobs.push({
+      source: "screener",
+      label: "SCREENER",
+      step: screener.engine.step ?? "UPDATING",
+      progress: screener.engine.progress ?? null,
+      held: screener.engine.state === "waiting",
+      clockOffset: screener.clockOffset,
+    });
+  }
+  if (watchlist.connected && watchlist.engine.state === "updating") {
+    const queue = watchlist.engine.queue ?? 0;
+    jobs.push({
+      source: "watchlist",
+      label: "WATCHLIST",
+      step: `UPDATING ${watchlist.engine.symbol}${queue ? ` (+${queue} DUE)` : ""}`,
+      progress: watchlist.engine.progress ?? null,
+      held: false,
+      clockOffset: watchlist.clockOffset,
+    });
+  }
+  const topJob = jobs.find((j) => j.source === screen) ?? jobs[0] ?? null;
+
   const sectionScreen = screen === "settings" || screen === "tokens" ? returnTo.current : screen;
-  const activeMode = sectionScreen === "watchlist" || (sectionScreen === "summary" && summaryFrom.current === "watchlist") ? "watchlist" : "scanner";
+  const section = sectionScreen === "summary" ? summaryFrom.current : sectionScreen;
+  const activeMode = section === "watchlist" ? "watchlist" : section === "screener" ? "screener" : "scanner";
 
   return (
     <div className="app">
       <TopBar
         barRef={topBarRef}
-        clock={clock}
         hidden={screen === "loading" || showSplash}
         onBack={screen === "start" ? undefined : goBack}
         onHome={screen === "start" ? undefined : goHome}
@@ -349,14 +419,16 @@ export default function App() {
         onTokens={screen === "tokens" ? undefined : () => openOverlayScreen("tokens")}
         garageCount={watchlist.connected ? watchlist.items.length : null}
         onGarage={screen === "watchlist" || scanInProgress ? undefined : openWatchlist}
+        connection={connection}
+        job={screen === "loading" ? null : topJob}
+        onOpenJob={scanInProgress ? undefined : (source) => (source === screen ? undefined : source === "screener" ? openScreener() : openWatchlist())}
       />
 
       <main className="app__screens">
         <StartPage
           screenRef={screenRefs.start}
           active={screen === "start" && !showSplash}
-          clock={clock}
-          buyButtonsEnabled={buyButtonsEnabled}
+            buyButtonsEnabled={buyButtonsEnabled}
           dryRun={dryRun}
           onSuperSubmit={superCalculate}
           onManualSubmit={(stockData) => void scan(stockData.symbol, stockData)}
@@ -371,7 +443,7 @@ export default function App() {
           onOpenWatchItem={openWatchItem}
           onOpenWatchlist={openWatchlist}
         />
-        <LoadingPage screenRef={screenRefs.loading} active={screen === "loading" || loadingDeparting} departing={loadingDeparting} symbol={loadingSymbol} marketState={clock.marketState} steps={steps} news={news.items} exchange={loadingExchange} finale={loadingFinale} />
+        <LoadingPage screenRef={screenRefs.loading} active={screen === "loading" || loadingDeparting} departing={loadingDeparting} symbol={loadingSymbol} marketState={marketState} steps={steps} news={news.items} exchange={loadingExchange} finale={loadingFinale} />
         <SummaryPage
           screenRef={screenRefs.summary}
           active={screen === "summary"}
@@ -401,12 +473,13 @@ export default function App() {
           }}
         />
         <WatchlistPage screenRef={screenRefs.watchlist} active={screen === "watchlist"} watchlist={watchlist} onOpenItem={openWatchItem} />
+        <ScreenerPage screenRef={screenRefs.screener} active={screen === "screener"} screener={screener} onOpen={openScreenerEntry} />
         <TokensPage screenRef={screenRefs.tokens} active={screen === "tokens"} usage={usage} error={usageError} />
         <SettingsPage screenRef={screenRefs.settings} active={screen === "settings"} dryRun={dryRun} onDryRunChange={setDryRun} />
       </main>
 
       {!showSplash && (
-        <ModeBar activeMode={activeMode} hidden={!modeBarShown} busy={scanInProgress} onHome={goHome} onOpenWatchlist={openWatchlist} />
+        <ModeBar activeMode={activeMode} hidden={!modeBarShown} busy={scanInProgress} onHome={goHome} onOpenWatchlist={openWatchlist} onOpenScreener={openScreener} />
       )}
 
       {!showSplash && (

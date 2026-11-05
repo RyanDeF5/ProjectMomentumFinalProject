@@ -9,6 +9,7 @@ const path = require("path");
 const { getQuote, getSparkline, marketState } = require("./quotes");
 const { getNews } = require("./news");
 const legend = require("./legend");
+const { Progress } = require("./progress");
 const { tickers: FORTUNE_500 } = require("./fortune500.json");
 
 const FILE = process.env.WATCHLIST_FILE || path.join(__dirname, "data", "watchlist.json");
@@ -19,10 +20,19 @@ const NEWS_MAX_AGE_MS = 60_000; // re-run the news search at most once a minute 
 const RETRY_MS = 30_000; // wait at least this long before retrying a failed update
 const HISTORY = 24;
 const SYMBOL = /^[A-Z0-9][A-Z0-9.\-=^]{0,11}$/;
+// The steps of one update as the loading bar shows them, with first-guess timings (ms) that are
+// replaced by measured ones
+const PHASES = [
+  { key: "quote", label: "PRICE" },
+  { key: "news", label: "NEWS" },
+  { key: "legend", label: "LEGEND" },
+];
+const DEFAULT_TIMING = { quote: 1200, news: 2500, legend: 7000 };
 
 let store = load();
 const clients = new Set();
-let engine = { state: "offline", symbol: null, nextAt: null };
+const progress = new Progress(PHASES, store.timing);
+let engine = { state: "offline", symbol: null, nextAt: null, progress: null, queue: 0 };
 let running = false;
 let current = null; // symbol being updated
 let wakeUp = null;
@@ -32,12 +42,17 @@ function load() {
   try {
     const parsed = JSON.parse(fs.readFileSync(FILE, "utf8"));
     if (parsed && Array.isArray(parsed.items)) {
-      return { version: 1, settings: { interval: DEFAULT_INTERVAL, dryRun: false, ...parsed.settings }, items: parsed.items };
+      return {
+        version: 1,
+        settings: { interval: DEFAULT_INTERVAL, dryRun: false, ...parsed.settings },
+        items: parsed.items,
+        timing: { ...DEFAULT_TIMING, ...parsed.timing },
+      };
     }
   } catch (err) {
     if (err.code !== "ENOENT") console.error("Watchlist file unreadable, starting fresh:", err.message);
   }
-  return { version: 1, settings: { interval: DEFAULT_INTERVAL, dryRun: false }, items: [] };
+  return { version: 1, settings: { interval: DEFAULT_INTERVAL, dryRun: false }, items: [], timing: { ...DEFAULT_TIMING } };
 }
 
 function save() {
@@ -127,10 +142,18 @@ function snapshot() {
   return { items: store.items.map(publicItem), settings: store.settings, engine, limit: MAX_ITEMS, intervals: INTERVALS, now: Date.now() };
 }
 
-function setEngine(state, symbol = null, nextAt = null) {
-  if (engine.state === state && engine.symbol === symbol && engine.nextAt === nextAt) return;
-  engine = { state, symbol, nextAt };
+/** `progress` places the loading bar during an update; `queue` counts the other stocks due now. */
+function setEngine(state, symbol = null, nextAt = null, progressNow = null) {
+  const queue = dueNow(symbol);
+  if (!progressNow && engine.state === state && engine.symbol === symbol && engine.nextAt === nextAt && engine.queue === queue) return;
+  engine = { state, symbol, nextAt, progress: progressNow, queue };
   broadcast("engine", { ...engine, now: Date.now() });
+}
+
+function dueNow(except) {
+  const interval = store.settings.interval * 1000;
+  const now = Date.now();
+  return store.items.filter((item) => item.symbol !== except && dueAt(item, interval) <= now).length;
 }
 
 /** GET /watchlist/stream: the current list, then every change as it happens. */
@@ -140,7 +163,8 @@ function connect(req, res) {
   res.write("retry: 3000\n\n");
   send(res, "snapshot", snapshot());
   clients.add(res);
-  const ping = setInterval(() => res.write(": ping\n\n"), 25_000);
+  // Pages reopen the stream if they hear nothing for a while, so it pings regularly
+  const ping = setInterval(() => send(res, "ping", Date.now()), 15_000);
   req.on("close", () => {
     clearInterval(ping);
     clients.delete(res);
@@ -210,7 +234,7 @@ async function loop() {
     }
   } finally {
     running = false;
-    engine = { state: "offline", symbol: null, nextAt: null };
+    engine = { state: "offline", symbol: null, nextAt: null, progress: null, queue: 0 };
   }
 }
 
@@ -218,11 +242,13 @@ async function update(item) {
   const { symbol } = item;
   item.forced = false;
   current = symbol;
-  setEngine("updating", symbol);
+  progress.start();
+  setEngine("updating", symbol, null, progress.step("quote"));
   broadcast("item", publicItem(item));
   try {
     const state = marketState();
     const quote = await getQuote(symbol, state);
+    setEngine("updating", symbol, null, progress.step("news"));
     const stock = {
       symbol,
       fullName: quote.fullName,
@@ -237,7 +263,10 @@ async function update(item) {
       getSparkline(symbol).catch(() => item.spark || []),
     ]);
     const stories = news.items.map(({ excerpt: _excerpt, ...story }) => story);
+    setEngine("updating", symbol, null, progress.step("legend"));
     const analysis = store.settings.dryRun ? legend.example(stock, state, news.items) : await legend.analyze(stock, state, news.items);
+    if (store.settings.dryRun) progress.hold(); // instant, so not a timing to learn from
+    else progress.end();
     if (!find(symbol)) return; // removed while updating
 
     const now = Date.now();
@@ -260,6 +289,7 @@ async function update(item) {
     announce(item, before, analysis, stories);
     console.log(`Watchlist ${symbol}: ${analysis.score} ${analysis.rating}${store.settings.dryRun ? " (dry run)" : ""}`);
   } catch (err) {
+    progress.hold();
     item.error = /LM Studio|fetch failed|ECONNREFUSED|timeout/i.test(err.message) ? "LEGEND OFFLINE" : "UPDATE FAILED";
     item.failedAt = Date.now();
     console.error(`Watchlist ${symbol} update failed:`, err.message);

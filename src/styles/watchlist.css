@@ -156,6 +156,21 @@ button:disabled > .a9-glint--idle {
     transform: scaleY(0.85);
   }
 }
+/* Opens upward near the bottom of the screen */
+.a9-drop.is-up .a9-drop__menu {
+  top: auto;
+  bottom: calc(100% + 4px);
+  transform-origin: bottom;
+  box-shadow:
+    0 0 0 2px #fff,
+    0 -14px 32px rgba(0, 0, 0, 0.55);
+}
+.a9-drop.is-up .a9-drop__button svg {
+  transform: rotate(180deg);
+}
+.a9-drop.is-up.is-open .a9-drop__button svg {
+  transform: none;
+}
 .a9-drop__option {
   position: relative;
   padding: 9px 14px 8px 16px;
@@ -436,7 +451,8 @@ button:disabled > .a9-glint--idle {
 .garage__title {
   display: flex;
   align-items: center;
-  gap: 16px;
+  flex-wrap: wrap;
+  gap: 10px 16px;
 }
 .garage__count {
   padding: 5px 10px 3px;
@@ -444,6 +460,22 @@ button:disabled > .a9-glint--idle {
   color: var(--a9-dark);
   font-size: 17px;
   font-weight: 700;
+}
+/* Update status beside the count, like the screener's timer chip */
+.garage__state {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 10px 3px 8px;
+  background: var(--a9-pink);
+  color: #fff;
+  font-size: 17px;
+  font-weight: 700;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.garage__all {
+  gap: 7px;
 }
 /* D C B A S squares, top right like the garage */
 .garage__filter-set {
@@ -544,65 +576,6 @@ button:disabled > .a9-glint--idle {
 }
 .garage__dir.is-up svg {
   transform: rotate(180deg);
-}
-
-.garage__status {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-top: 12px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.35);
-  font-size: 14px;
-  letter-spacing: 0.08em;
-}
-.garage__pulse {
-  flex: none;
-  width: 9px;
-  height: 9px;
-  background: #56606e;
-  transform: rotate(45deg);
-}
-.garage__pulse.is-idle {
-  background: var(--a9-lime);
-}
-.garage__pulse.is-updating {
-  background: var(--a9-lime);
-  animation: live-pulse 0.8s ease-in-out infinite;
-}
-.garage__pulse.is-waiting,
-.garage__pulse.is-paused {
-  background: #ffc21a;
-}
-.garage__status-text {
-  font-weight: 700;
-  white-space: nowrap;
-}
-.garage__status-note {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--a9-dim);
-  font-size: 12px;
-}
-.garage__all {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 6px 10px 5px;
-  border: 0;
-  background: transparent;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.45);
-  color: #fff;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  white-space: nowrap;
-  cursor: inherit;
-}
-.garage__all:hover {
-  background: rgba(255, 255, 255, 0.08);
 }
 
 .garage__body {
@@ -1215,9 +1188,6 @@ button:disabled > .a9-glint--idle {
   .garage__search {
     flex: 1;
     width: auto;
-  }
-  .garage__status-note {
-    display: none;
   }
 }
 @media (max-width: 560px) {

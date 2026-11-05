@@ -66,6 +66,19 @@ export interface LegendResponse {
   model: string;
   /** Tokens this analysis used (absent for the dry run) */
   tokens?: { prompt: number; completion: number; total: number };
+  /** Screener mode only: Legend's grade of the setup */
+  screener?: ScreenerGrade;
+}
+
+export type SetupGrade = "A+" | "A" | "B" | "C" | "F";
+
+export interface ScreenerGrade {
+  setupGrade: SetupGrade;
+  catalystType: string;
+  /** Why it is moving today */
+  whyNow: string;
+  /** What would confirm or invalidate the setup */
+  tradePlan: string;
 }
 
 export interface LegendStatus {
@@ -140,11 +153,39 @@ export interface WatchSettings {
   dryRun: boolean;
 }
 
+/**
+ * Where a background job (a screener scan, a watchlist update) has got to, for the loading bar
+ * (see server/progress.js). Times are on the server's clock.
+ */
+export interface JobProgress {
+  phases: { key: string; label: string }[];
+  phase: string;
+  /** For a counted phase (Legend grading several stocks): which one, of how many */
+  unit: number;
+  units: number;
+  startedAt: number;
+  stepStartedAt: number;
+  /** Expected time for this step, and for everything after it */
+  stepEstimateMs: number;
+  afterMs: number;
+  /** Share of the whole job done when this step started, and when it should end */
+  from: number;
+  to: number;
+  /** Items done within the step, e.g. 12 of 34 floats looked up (0 of 0 when not counted) */
+  done: number;
+  total: number;
+  /** The step is on hold (waiting for a scan run by hand) */
+  held?: boolean;
+}
+
 /** What the update loop is doing */
 export interface WatchEngine {
   state: "offline" | "idle" | "updating" | "waiting" | "paused";
   symbol: string | null;
   nextAt: number | null;
+  progress?: JobProgress | null;
+  /** Other stocks due for an update now */
+  queue?: number;
   /** Server clock when this was sent, to line countdowns up with this device's clock */
   now?: number;
 }
@@ -176,6 +217,18 @@ export type WatchAlert =
     }
   | {
       id: string;
+      kind: "setup";
+      symbol: string;
+      name: string;
+      at: number;
+      grade: SetupGrade;
+      score: number;
+      /** % change on the day */
+      change: number;
+      whyNow: string;
+    }
+  | {
+      id: string;
       kind: "class-up";
       symbol: string;
       name: string;
@@ -185,3 +238,109 @@ export type WatchAlert =
       score: number;
       delta: number;
     };
+
+/** One of the five momentum pillars, checked by the screener */
+export interface Pillar {
+  key: "price" | "float" | "change" | "rvol" | "news";
+  label: string;
+  value: string;
+  pass: boolean;
+}
+
+/** A stock on the screener's board (see server/screener.js) */
+export interface ScreenerEntry {
+  symbol: string;
+  name: string;
+  exchange: string | null;
+  /** Company website, for its logo */
+  domain: string | null;
+  price: number;
+  /** % change on the day (pre-market change before the open) */
+  change: number;
+  prevClose: number;
+  open: number | null;
+  dayHigh: number | null;
+  dayLow: number | null;
+  volume: number;
+  avgVolume: number;
+  rvol: number;
+  float: number;
+  marketCap: number | null;
+  /** Where the scanner found it: YAHOO, TRENDING, STOCKTWITS, NEWS */
+  found: string[];
+  /** The headline that surfaced it, when found in the news */
+  headline: string | null;
+  news: NewsItem[];
+  pillars: Pillar[];
+  passed: number;
+  /** Score from the numbers alone */
+  quant: number;
+  /** Legend's score once graded, the quant score until then */
+  score: number;
+  grade: SetupGrade | null;
+  ai: LegendResponse | null;
+  analyzedAt: number | null;
+  firstSeen: number;
+  /** Place among the A+ to C setups (null while not graded, or graded F) */
+  rank: number | null;
+  /** Rank at the end of the last update, for the ▲▼ arrows */
+  prevRank: number | null;
+  /** Joined the board in this update */
+  isNew: boolean;
+}
+
+/** What one screener update costs, for the page's estimate */
+export interface ScreenerEstimate {
+  tokensPerGrade: number;
+  /** False until real grades have been measured */
+  measured: boolean;
+  /** Time per Legend grade, and for the steps before grading */
+  gradeMs: number;
+  baseMs: number;
+}
+
+export interface ScreenerSettings {
+  /** Seconds between scans; 0 pauses (the default) */
+  interval: number;
+  dryRun: boolean;
+  /** How many stocks the board shows, and Legend grades, per update */
+  boardSize: number;
+  criteria: { minPrice: number; maxPrice: number; maxFloat: number; minChange: number; minRvol: number; requireNews: boolean };
+}
+
+export interface ScreenerStats {
+  /** Start of the current (or last) update; lastStartedAt is the last finished one's */
+  startedAt: number;
+  finishedAt: number;
+  lastStartedAt?: number;
+  candidates: number;
+  movers: number;
+  shown?: number;
+  graded: number;
+  /** Grades done in the update running now */
+  gradedNow?: number;
+  boardSize?: number;
+  session: MarketState;
+  error: string | null;
+}
+
+export interface ScreenerEngine {
+  state: "offline" | "paused" | "idle" | "scanning" | "analyzing" | "waiting";
+  /** What the scan is doing, e.g. LEGEND IS GRADING ABCD */
+  step: string | null;
+  symbol: string | null;
+  nextAt: number | null;
+  progress?: JobProgress | null;
+  now?: number;
+}
+
+export interface ScreenerSnapshot {
+  board: ScreenerEntry[];
+  settings: ScreenerSettings;
+  stats: ScreenerStats | null;
+  engine: ScreenerEngine;
+  intervals: number[];
+  boardSizes: number[];
+  estimate: ScreenerEstimate;
+  now: number;
+}

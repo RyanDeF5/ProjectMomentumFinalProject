@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { sfx } from "../audio/sfx";
 import { ChevronDownIcon } from "./Icons";
 
@@ -9,6 +9,8 @@ interface DropdownProps<T extends string | number> {
   value: T;
   onChange: (value: T) => void;
   className?: string;
+  /** Where the list opens: below the button unless it would run off the screen ("auto"), or always above */
+  placement?: "auto" | "up";
 }
 
 /** Boxy select in the game's style: a white button that opens a navy list, the current choice in white. */
@@ -18,11 +20,14 @@ export function Dropdown<T extends string | number>({
   value,
   onChange,
   className,
+  placement = "auto",
 }: DropdownProps<T>) {
   const [open, setOpen] = useState(false);
+  const [up, setUp] = useState(placement === "up");
   const [active, setActive] = useState(0);
   const rootRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLUListElement>(null);
   const listId = useId();
   const current = options.find((o) => o.value === value) ?? options[0];
 
@@ -34,6 +39,16 @@ export function Dropdown<T extends string | number>({
     document.addEventListener("pointerdown", onPointer);
     return () => document.removeEventListener("pointerdown", onPointer);
   }, [open]);
+
+  // Open upward when the list wouldn't fit below the button (measured before it paints)
+  useLayoutEffect(() => {
+    if (!open || placement === "up") return;
+    const button = buttonRef.current?.getBoundingClientRect();
+    const menu = menuRef.current;
+    if (!button || !menu) return;
+    const below = window.innerHeight - button.bottom;
+    setUp(menu.offsetHeight + 12 > below && button.top > below);
+  }, [open, placement]);
 
   function toggle() {
     sfx.play("tap");
@@ -82,7 +97,7 @@ export function Dropdown<T extends string | number>({
 
   return (
     <div
-      className={`a9-drop${open ? " is-open" : ""}${className ? ` ${className}` : ""}`}
+      className={`a9-drop${open ? " is-open" : ""}${up && (open || placement === "up") ? " is-up" : ""}${className ? ` ${className}` : ""}`}
       ref={rootRef}
       onKeyDown={onKeyDown}
     >
@@ -103,6 +118,7 @@ export function Dropdown<T extends string | number>({
         </button>
         {open && (
           <ul
+            ref={menuRef}
             className="a9-drop__menu"
             role="listbox"
             id={listId}
