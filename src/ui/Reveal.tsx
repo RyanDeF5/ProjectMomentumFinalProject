@@ -1,4 +1,4 @@
-import type { CSSProperties, ElementType, ReactNode } from "react";
+import type { CSSProperties, ElementType, ReactNode, Ref } from "react";
 import type { A9Kind } from "../animation/a9";
 
 interface RevealProps {
@@ -13,6 +13,8 @@ interface RevealProps {
   /** For interactive reveals (as="button") */
   onClick?: () => void;
   type?: "button";
+  ref?: Ref<HTMLDivElement>;
+  title?: string;
   [attr: `aria-${string}` | `data-${string}`]: unknown;
 }
 

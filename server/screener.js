@@ -19,6 +19,7 @@ const { getNews } = require("./news");
 const { quantScore } = require("./scoring");
 const legend = require("./legend");
 const { Progress } = require("./progress");
+const schedule = require("./schedule");
 
 const yahooFinance = new YahooFinance({ suppressNotices: ["yahooSurvey"] });
 
@@ -67,7 +68,7 @@ const NOT_TICKERS = new Set(
 let store = load();
 const clients = new Set();
 const progress = new Progress(PHASES, store.timing);
-let engine = { state: "offline", step: null, symbol: null, nextAt: null, progress: null };
+let engine = { state: "offline", step: null, symbol: null, nextAt: null, progress: null, reason: null };
 let countSentAt = 0;
 let running = false;
 let forced = false;
@@ -147,7 +148,7 @@ function estimate() {
 }
 
 function setEngine(state, extra = {}) {
-  engine = { state, step: null, symbol: null, nextAt: null, progress: null, ...extra };
+  engine = { state, step: null, symbol: null, nextAt: null, progress: null, reason: null, ...extra };
   broadcast("engine", { ...engine, now: Date.now() });
 }
 
@@ -205,23 +206,32 @@ function sleep(ms) {
   });
 }
 
-// Scans only run while someone has the site open; paused unless asked for by hand
+// Scans only run while someone has the site open (or always, if the schedule says to keep
+// running), within the schedule's hours; paused unless asked for by hand
 async function loop() {
   if (running) return;
   running = true;
   try {
-    while (clients.size) {
+    while (clients.size || schedule.background()) {
       const interval = store.settings.interval * 1000;
       if (!interval && !forced) {
         setEngine("paused");
         await sleep(60_000);
         continue;
       }
+      if (!forced) {
+        const blocked = schedule.gate("screener");
+        if (blocked) {
+          setEngine(blocked.state, { nextAt: blocked.resumeAt, reason: blocked.reason });
+          await sleep(blocked.wait);
+          continue;
+        }
+      }
       const last = store.stats?.finishedAt || 0;
       const due = forced ? 0 : last + interval;
       if (due > Date.now()) {
         setEngine("idle", { nextAt: due });
-        await sleep(due - Date.now());
+        await sleep(Math.min(due - Date.now(), 60_000));
         continue;
       }
       forced = false;
@@ -229,7 +239,7 @@ async function loop() {
     }
   } finally {
     running = false;
-    engine = { state: "offline", step: null, symbol: null, nextAt: null, progress: null };
+    engine = { state: "offline", step: null, symbol: null, nextAt: null, progress: null, reason: null };
   }
 }
 
@@ -668,4 +678,18 @@ function setScanCheck(check) {
   scanInProgress = check;
 }
 
-module.exports = { connect, snapshot, updateSettings, scanNow, setScanCheck, poke, tickersIn };
+/** For the schedule screen. */
+function scheduleInfo() {
+  return {
+    interval: store.settings.interval,
+    intervals: INTERVALS,
+    boardSize: store.settings.boardSize,
+    boardSizes: BOARD_SIZES,
+    movers: store.stats?.movers || null,
+    engine,
+    estimate: estimate(),
+    lastFinishedAt: store.stats?.finishedAt || 0,
+  };
+}
+
+module.exports = { connect, snapshot, updateSettings, scanNow, setScanCheck, poke, tickersIn, scheduleInfo };

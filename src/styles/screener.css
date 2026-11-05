@@ -26,7 +26,8 @@
 /* Fills the window like the game: the board scrolls between the fixed header and footer */
 .screen--screener {
   height: calc(100dvh - var(--modes-h));
-  min-height: 520px;
+  min-height: 480px;
+  padding-top: calc(var(--topbar-h) + 18px);
   padding-bottom: 14px;
   display: flex;
   flex-direction: column;
@@ -43,62 +44,78 @@
 }
 
 /* ---------- Header ---------- */
+/* One compact row: the title and its chips on the left, the tabs on the right, so the board gets
+   the height */
 .mp__head {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
-  gap: 24px;
-  flex-wrap: wrap;
+  gap: 16px 24px;
 }
 .mp__title {
+  min-width: 0;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  padding-bottom: 14px;
+  padding-bottom: 10px;
 }
 .mp__rule {
-  width: 210px;
-  height: 6px;
+  width: 160px;
+  height: 5px;
   background: var(--a9-pink);
 }
 .mp__heading {
-  margin: 10px 0 10px;
-  font-size: clamp(30px, 3.6vw, 46px);
+  margin: 8px 0 8px;
+  font-size: clamp(26px, 2.6vw, 38px);
   font-weight: 700;
   line-height: 1;
 }
 .mp__chips {
   display: flex;
   align-items: stretch;
+  flex-wrap: wrap;
   gap: 4px;
 }
 .mp__timer {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 5px 12px 3px 10px;
+  padding: 4px 10px 2px 8px;
+  border: 0;
   background: var(--a9-pink);
   color: #fff;
-  font-size: 22px;
+  font: inherit;
+  font-size: 18px;
   font-weight: 700;
   line-height: 1;
   white-space: nowrap;
+}
+/* Opens the job's settings in the Update Schedule */
+.mp__timer.is-link {
+  cursor: inherit;
+  transition: filter 0.12s;
+}
+.mp__timer.is-link:hover {
+  filter: brightness(1.12);
+}
+.mp__timer.is-link svg:last-child {
+  margin-left: 2px;
+  opacity: 0.85;
 }
 .mp__timer span {
   font-variant-numeric: tabular-nums;
 }
 .mp__timer.is-busy {
-  font-size: 18px;
   letter-spacing: 0.02em;
 }
 .mp__legend {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 10px 2px 6px;
+  padding: 3px 10px 1px 6px;
   background: #0d1b33;
   color: #fff;
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 700;
 }
 .mp__side {
@@ -111,19 +128,20 @@
 .mp__aplus {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 4px 12px 2px;
+  gap: 8px;
+  padding: 3px 10px 1px;
   background: #05070d;
   font-weight: 700;
 }
 .mp__aplus-tag {
   color: #fff;
-  font-size: 15px;
+  font-size: 14px;
   letter-spacing: 0.04em;
 }
 .mp__aplus-value {
   color: var(--a9-lime);
-  font-size: 26px;
+  font-size: 22px;
+  line-height: 1;
   font-variant-numeric: tabular-nums;
 }
 /* Tabs that sit on the panel's top edge */
@@ -133,16 +151,17 @@
   margin-bottom: -2px;
 }
 .mp__tab {
-  min-width: clamp(170px, 18vw, 270px);
-  height: 50px;
-  padding: 2px 18px 0;
+  min-width: clamp(120px, 11vw, 210px);
+  height: 44px;
+  padding: 2px 16px 0;
   border: 0;
   background: linear-gradient(180deg, #0f3460, #0b2a50);
   box-shadow: inset 0 0 0 2px #2a62ad;
   color: #fff;
-  font-size: 20px;
+  font-size: 17px;
   font-weight: 600;
   letter-spacing: 0.03em;
+  white-space: nowrap;
   cursor: inherit;
 }
 .mp__tab:hover:not(.is-on) {
@@ -197,8 +216,9 @@
   overflow: hidden;
   transition: filter 0.12s;
 }
+/* A lighter fill on hover; a filter here re-rasterizes the whole row on every hover */
 button.srow__button:hover:not(:disabled) {
-  filter: brightness(1.12);
+  background: linear-gradient(180deg, #14366a, #0e2a55);
 }
 button.srow__button:disabled {
   cursor: default;
@@ -614,34 +634,7 @@ button.srow__button:disabled {
   letter-spacing: 0.04em;
 }
 
-/* ---------- Footer: AUTO SCAN, stats, SCAN NOW ---------- */
-.mp__foot {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px 22px;
-  flex-wrap: wrap;
-  padding: 22px clamp(8px, 2vw, 28px) 4px;
-}
-.mp__auto {
-  padding: 8px 12px;
-  background: #fff;
-}
-.mp__auto .a9-drop__label {
-  color: var(--a9-dark);
-  font-size: 15px;
-  font-weight: 700;
-}
-.mp__auto .a9-drop__button {
-  min-width: 150px;
-}
-.mp__auto .a9-drop__button {
-  background: #e7ecf3;
-}
-.mp__stats {
-  display: flex;
-  gap: clamp(20px, 3vw, 44px);
-}
+/* ---------- Stats (used by the Update Schedule) ---------- */
 .mp__stat {
   display: flex;
   flex-direction: column;
@@ -669,14 +662,6 @@ button.srow__button:disabled {
   letter-spacing: 0.06em;
   white-space: nowrap;
 }
-.mp__go {
-  margin-left: auto;
-}
-.mp__scan {
-  min-width: clamp(200px, 17vw, 270px);
-  min-height: 74px;
-  font-size: 30px;
-}
 
 /* ---------- Smaller screens ---------- */
 @media (max-width: 1180px) {
@@ -693,6 +678,11 @@ button.srow__button:disabled {
   .srow__grade {
     grid-column: 2 / -1;
     padding-top: 4px;
+  }
+}
+@media (max-width: 1000px) {
+  .mp__head {
+    flex-wrap: wrap;
   }
 }
 @media (max-width: 760px) {
@@ -750,21 +740,6 @@ button.srow__button:disabled {
   .mp__aplus {
     align-self: flex-end;
   }
-  .mp__go {
-    width: 100%;
-  }
-  .mp__auto {
-    width: 100%;
-  }
-  .mp__auto .a9-drop {
-    width: 100%;
-    justify-content: space-between;
-  }
-  .mp__stats {
-    width: 100%;
-    justify-content: space-between;
-    gap: 12px;
-  }
   .mp__stat-value {
     font-size: 20px;
   }
@@ -773,9 +748,6 @@ button.srow__button:disabled {
   }
   .srow__score {
     margin-left: 0;
-  }
-  .mp__scan {
-    width: 100%;
   }
   .srow--criteria .srow__button {
     grid-template-columns: 92px minmax(0, 1fr);

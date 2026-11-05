@@ -10,11 +10,12 @@ const { getQuote, getSparkline, marketState } = require("./quotes");
 const { getNews } = require("./news");
 const legend = require("./legend");
 const { Progress } = require("./progress");
+const schedule = require("./schedule");
 const { tickers: FORTUNE_500 } = require("./fortune500.json");
 
 const FILE = process.env.WATCHLIST_FILE || path.join(__dirname, "data", "watchlist.json");
 const MAX_ITEMS = 30;
-const INTERVALS = [0, 10, 30, 60]; // seconds between a stock's updates; 0 pauses updates
+const INTERVALS = [0, 10, 30, 60, 120, 300, 600, 900, 1800, 3600]; // seconds between a stock's updates; 0 pauses updates
 const DEFAULT_INTERVAL = 30;
 const NEWS_MAX_AGE_MS = 60_000; // re-run the news search at most once a minute per stock
 const RETRY_MS = 30_000; // wait at least this long before retrying a failed update
@@ -32,7 +33,7 @@ const DEFAULT_TIMING = { quote: 1200, news: 2500, legend: 7000 };
 let store = load();
 const clients = new Set();
 const progress = new Progress(PHASES, store.timing);
-let engine = { state: "offline", symbol: null, nextAt: null, progress: null, queue: 0 };
+let engine = { state: "offline", symbol: null, nextAt: null, progress: null, queue: 0, reason: null };
 let running = false;
 let current = null; // symbol being updated
 let wakeUp = null;
@@ -142,11 +143,14 @@ function snapshot() {
   return { items: store.items.map(publicItem), settings: store.settings, engine, limit: MAX_ITEMS, intervals: INTERVALS, now: Date.now() };
 }
 
-/** `progress` places the loading bar during an update; `queue` counts the other stocks due now. */
-function setEngine(state, symbol = null, nextAt = null, progressNow = null) {
+/**
+ * `progress` places the loading bar during an update; `queue` counts the other stocks due now;
+ * `reason` says why updates are held (outside the schedule's hours, the daily token limit).
+ */
+function setEngine(state, symbol = null, nextAt = null, progressNow = null, reason = null) {
   const queue = dueNow(symbol);
-  if (!progressNow && engine.state === state && engine.symbol === symbol && engine.nextAt === nextAt && engine.queue === queue) return;
-  engine = { state, symbol, nextAt, progress: progressNow, queue };
+  if (!progressNow && engine.state === state && engine.symbol === symbol && engine.nextAt === nextAt && engine.queue === queue && engine.reason === reason) return;
+  engine = { state, symbol, nextAt, progress: progressNow, queue, reason };
   broadcast("engine", { ...engine, now: Date.now() });
 }
 
@@ -201,12 +205,12 @@ function dueAt(item, interval) {
   return item.updatedAt + interval;
 }
 
-// Updates only run while someone has the site open
+// Updates only run while someone has the site open (or always, if the schedule says to keep running)
 async function loop() {
   if (running) return;
   running = true;
   try {
-    while (clients.size) {
+    while (clients.size || schedule.background()) {
       const interval = store.settings.interval * 1000;
       if (!store.items.length) {
         setEngine("idle");
@@ -220,9 +224,16 @@ async function loop() {
         await sleep(60_000);
         continue;
       }
+      // Outside the schedule: only stocks asked for by hand (or never analyzed) are updated
+      const blocked = next.at !== 0 && schedule.gate("watchlist");
+      if (blocked) {
+        setEngine(blocked.state, null, blocked.resumeAt, null, blocked.reason);
+        await sleep(blocked.wait);
+        continue;
+      }
       if (next.at > Date.now()) {
         setEngine("idle", next.item.symbol, next.at);
-        await sleep(next.at - Date.now());
+        await sleep(Math.min(next.at - Date.now(), 60_000));
         continue;
       }
       if (scanInProgress()) {
@@ -234,7 +245,7 @@ async function loop() {
     }
   } finally {
     running = false;
-    engine = { state: "offline", symbol: null, nextAt: null, progress: null, queue: 0 };
+    engine = { state: "offline", symbol: null, nextAt: null, progress: null, queue: 0, reason: null };
   }
 }
 
@@ -394,4 +405,20 @@ function setScanCheck(check) {
   scanInProgress = check;
 }
 
-module.exports = { connect, snapshot, add, remove, refresh, updateSettings, setScanCheck, poke };
+/** What one stock's update costs, from the latest analyses: tokens and time. */
+function estimate() {
+  const spent = store.items.map((i) => Number(i.legend?.tokens?.total)).filter((n) => n > 0);
+  const t = store.timing;
+  return {
+    tokensPerUpdate: spent.length ? Math.round(spent.reduce((a, b) => a + b, 0) / spent.length) : 2500,
+    measured: spent.length > 0,
+    updateMs: t.quote + t.news + t.legend,
+  };
+}
+
+/** For the schedule screen. */
+function scheduleInfo() {
+  return { interval: store.settings.interval, intervals: INTERVALS, count: store.items.length, limit: MAX_ITEMS, engine, estimate: estimate() };
+}
+
+module.exports = { connect, snapshot, add, remove, refresh, updateSettings, setScanCheck, poke, scheduleInfo, DEFAULT_INTERVAL };

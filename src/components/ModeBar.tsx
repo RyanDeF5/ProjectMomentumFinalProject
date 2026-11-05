@@ -1,23 +1,27 @@
 import { useLayoutEffect, useRef } from "react";
 import { LockIcon } from "../ui/Icons";
 
-// Asphalt 9 mode row for the home screen, the watchlist and the stock screener. It stays mounted,
-// so moving between those never animates it out; on other screens it slides away below the window.
+// Asphalt 9 mode row for the home screen and the four mode screens. It stays mounted, so moving
+// between those never animates it out; on other screens it slides away below the window.
 const MODES = [
   { id: "scanner", top: "MARKET", bottom: "SCANNER" },
   { id: "watchlist", top: "WATCH", bottom: "LIST" },
   { id: "screener", top: "STOCK", bottom: "SCREENER" },
-  { id: "alerts", top: "PRICE", bottom: "ALERTS" },
   { id: "news", top: "MARKET", bottom: "NEWS" },
+  { id: "schedule", top: "UPDATE", bottom: "SCHEDULE" },
 ] as const;
 
-export function ModeBar({ activeMode, hidden, busy, onHome, onOpenWatchlist, onOpenScreener }: {
-  activeMode: "scanner" | "watchlist" | "screener";
+export type ModeId = (typeof MODES)[number]["id"];
+
+export function ModeBar({ activeMode, hidden, busy, onHome, onOpenWatchlist, onOpenScreener, onOpenNews, onOpenSchedule }: {
+  activeMode: ModeId;
   hidden: boolean;
   busy: boolean;
   onHome: () => void;
   onOpenWatchlist: () => void;
   onOpenScreener: () => void;
+  onOpenNews: () => void;
+  onOpenSchedule: () => void;
 }) {
   const barRef = useRef<HTMLElement>(null);
   useLayoutEffect(() => {
@@ -32,10 +36,12 @@ export function ModeBar({ activeMode, hidden, busy, onHome, onOpenWatchlist, onO
     return () => observer.disconnect();
   }, [hidden]);
 
-  const actions: Partial<Record<(typeof MODES)[number]["id"], () => void>> = {
+  const actions: Partial<Record<ModeId, () => void>> = {
     scanner: onHome,
     watchlist: onOpenWatchlist,
     screener: onOpenScreener,
+    news: onOpenNews,
+    schedule: onOpenSchedule,
   };
 
   return (

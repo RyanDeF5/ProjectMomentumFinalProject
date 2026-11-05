@@ -286,7 +286,7 @@ function assemble(raw, metrics, quant, news) {
 }
 
 /** Send one request to LM Studio with a strict JSON schema; returns the parsed reply and token usage. */
-async function callModel(model, system, user, schema, name) {
+async function callModel(model, system, user, schema, name, maxTokens = 1400) {
   const res = await fetch(`${LEGEND_URL}/chat/completions`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -294,7 +294,7 @@ async function callModel(model, system, user, schema, name) {
     body: JSON.stringify({
       model,
       temperature: 0.2,
-      max_tokens: 1400,
+      max_tokens: maxTokens,
       messages: [
         { role: "system", content: system },
         { role: "user", content: user },
@@ -406,4 +406,302 @@ function exampleScreen(stock, marketState, news = [], checks = {}) {
   };
 }
 
-module.exports = { analyze, screen, status, example, exampleScreen, usageSummary: usage.summary, LEGEND_URL };
+// ---------- Market news mode ----------
+// The market news desk sends Legend the day's headlines a few at a time. Legend judges each one
+// (is it real news, how much does it matter today, which stocks it is about), then writes a short
+// briefing on the market from the stories it kept.
+
+const NEWS_QUALITY = ["solid", "speculative", "promo", "stale", "offtopic"];
+const NEWS_IMPACT = ["high", "medium", "low", "none"];
+const NEWS_CATEGORIES = [
+  "macro",
+  "earnings",
+  "fda_biotech",
+  "deal_mna",
+  "analyst",
+  "ipo_listing",
+  "tech_ai",
+  "legal_regulatory",
+  "company_news",
+  "market_wrap",
+  "commodities",
+  "crypto",
+  "other",
+];
+const MOODS = ["risk_on", "risk_off", "mixed", "quiet"];
+
+const NEWS_PROMPT = `You are LEGEND, the market news desk inside Alpha 9: Legends, an app for active traders.
+You receive a batch of the latest market headlines (title, publisher, age, a short description when
+there is one) and judge each one for a trader who wants to know what is moving the market TODAY.
+Be skeptical: much of what shows up in news feeds is not worth a trader's time.
+
+For EVERY story decide:
+quality:
+  solid       - real reported news: earnings, deals, data releases, filings, approvals, official statements
+  speculative - rumors, unconfirmed reports, opinion or analysis pieces, predictions
+  promo       - paid promotion, clickbait, listicles ("3 stocks to buy now"), price-prediction pages
+  stale       - news more than a day old resurfaced, or a recap of something from an earlier session
+  offtopic    - not about markets, companies or the economy
+  A same-day market wrap ("stocks rally as...") is solid: it says what moved; give it low or medium impact.
+impact: how much it can move stocks or the market today
+  high (moves the whole market or a stock 5%+), medium (moves a stock or sector), low (minor), none
+sentiment: bullish, bearish, mixed or neutral for the stocks or market it is about
+category: the kind of story
+tickers: US-listed tickers of the companies the story is directly about, at most 4 (e.g. Nvidia ->
+  NVDA). Skip companies listed only outside the US. The "stocks" given with a story are real, current
+  US listings with their move right now (tickers change: trust these over memory), but a feed can tag
+  the wrong company, so keep only the ones the story is really about. Empty for market-wide stories.
+  Never guess.
+why: what it means for traders today, at most 18 words, plain and direct, no hype. Describe what it
+  means; never tell the reader to buy, sell, trade or avoid anything.
+
+Return one entry per story, using the story's [number] as its id.`;
+
+const NEWS_SCHEMA = {
+  type: "object",
+  properties: {
+    stories: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          id: { type: "integer", minimum: 1 },
+          quality: { type: "string", enum: NEWS_QUALITY },
+          impact: { type: "string", enum: NEWS_IMPACT },
+          sentiment: { type: "string", enum: SENTIMENTS },
+          category: { type: "string", enum: NEWS_CATEGORIES },
+          tickers: { type: "array", items: { type: "string" }, maxItems: 4 },
+          why: { type: "string" },
+        },
+        required: ["id", "quality", "impact", "sentiment", "category", "tickers", "why"],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ["stories"],
+  additionalProperties: false,
+};
+
+const BRIEFING_PROMPT = `You are LEGEND, the market news desk inside Alpha 9: Legends. From the stories you
+already judged and the market's moves right now, write a short briefing for a trader opening the app.
+mood: risk_on (buyers in control, broad gains), risk_off (fear, broad selling), mixed, or quiet (little news).
+headline: the one-line story of the market right now, at most 10 words, no trailing period.
+summary: what is driving the market and which stocks are in play, at most 50 words.
+themes: up to 4 themes running through the news (each a title of at most 4 words, a sentiment and
+  the tickers involved from the stories).
+watch: what to watch next (a data release, an earnings report, a level), at most 22 words.
+Use only the stories and moves given. Plain, direct sentences; no hype; no disclaimers.`;
+
+const BRIEFING_SCHEMA = {
+  type: "object",
+  properties: {
+    mood: { type: "string", enum: MOODS },
+    headline: { type: "string" },
+    summary: { type: "string" },
+    themes: {
+      type: "array",
+      maxItems: 4,
+      items: {
+        type: "object",
+        properties: {
+          title: { type: "string" },
+          sentiment: { type: "string", enum: SENTIMENTS },
+          tickers: { type: "array", items: { type: "string" }, maxItems: 6 },
+        },
+        required: ["title", "sentiment", "tickers"],
+        additionalProperties: false,
+      },
+    },
+    watch: { type: "string" },
+  },
+  required: ["mood", "headline", "summary", "themes", "watch"],
+  additionalProperties: false,
+};
+
+function storyBlock(stories) {
+  return stories
+    .map((s, i) => {
+      const detail = String(s.summary || "").slice(0, 280);
+      const named = s.stocks?.length ? ` [stocks: ${s.stocks.join("; ")}]` : "";
+      return `[${i + 1}] ${s.title} (${s.publisher}${s.coverage > 1 ? ` + ${s.coverage - 1} more outlets` : ""}, ${ageLabel(s.ageHours)})${named}${detail ? `\n    ${detail}` : ""}`;
+    })
+    .join("\n");
+}
+
+const TICKER = /^[A-Z][A-Z.\-]{0,5}$/;
+
+function newsVerdict(raw) {
+  return {
+    quality: pick(raw?.quality, NEWS_QUALITY, "speculative"),
+    impact: pick(raw?.impact, NEWS_IMPACT, "low"),
+    sentiment: pick(raw?.sentiment, SENTIMENTS, "neutral"),
+    category: pick(raw?.category, NEWS_CATEGORIES, "other"),
+    tickers: (Array.isArray(raw?.tickers) ? raw.tickers : []).map((t) => String(t).toUpperCase().replace(/^\$/, "").trim()).filter((t) => TICKER.test(t)).slice(0, 4),
+    why: text(raw?.why).replace(/\.$/, ""),
+  };
+}
+
+/**
+ * Judge a batch of market stories. Resolves to { verdicts (one per story, in order; null where the
+ * model skipped one), model, tokens }.
+ */
+async function readNews(stories, marketState) {
+  const model = await resolveModel();
+  const user = `MARKET SESSION: ${marketState}\n\nSTORIES:\n${storyBlock(stories)}`;
+  const { raw, tokens } = await callModel(model, NEWS_PROMPT, user, NEWS_SCHEMA, "legend_news", 300 + stories.length * 160);
+  const byId = new Map((Array.isArray(raw.stories) ? raw.stories : []).map((s) => [Number(s.id), s]));
+  return { verdicts: stories.map((_, i) => (byId.has(i + 1) ? newsVerdict(byId.get(i + 1)) : null)), model, tokens };
+}
+
+function briefingFrom(raw) {
+  return {
+    mood: pick(raw?.mood, MOODS, "mixed"),
+    headline: text(raw?.headline).replace(/\.$/, ""),
+    summary: text(raw?.summary),
+    themes: (Array.isArray(raw?.themes) ? raw.themes : []).slice(0, 4).map((t) => ({
+      title: text(t.title).toUpperCase(),
+      sentiment: pick(t.sentiment, SENTIMENTS, "neutral"),
+      tickers: (Array.isArray(t.tickers) ? t.tickers : []).map((x) => String(x).toUpperCase()).filter((x) => TICKER.test(x)).slice(0, 6),
+    })),
+    watch: text(raw?.watch),
+  };
+}
+
+/** The market briefing from the judged stories and the market's moves. */
+async function briefNews(stories, pulse, marketState) {
+  const model = await resolveModel();
+  const moves = pulse.map((p) => `${p.label} ${p.change >= 0 ? "+" : ""}${p.change.toFixed(2)}%`).join(", ");
+  const lines = stories
+    .map((s, i) => {
+      const t = s.tickers.map((x) => `${x.symbol}${Number.isFinite(x.change) ? ` ${x.change >= 0 ? "+" : ""}${x.change.toFixed(1)}%` : ""}`).join(", ");
+      return `[${i + 1}] ${s.title} (${s.publisher}, ${ageLabel(s.ageHours)}) impact=${s.ai.impact} sentiment=${s.ai.sentiment}${t ? ` tickers: ${t}` : ""}\n    ${s.ai.why}`;
+    })
+    .join("\n");
+  const user = `MARKET SESSION: ${marketState}\nMARKET MOVES NOW: ${moves || "unavailable"}\n\nSTORIES (most important first):\n${lines || "none"}`;
+  const { raw, tokens } = await callModel(model, BRIEFING_PROMPT, user, BRIEFING_SCHEMA, "legend_briefing", 900);
+  return { ...briefingFrom(raw), model, tokens };
+}
+
+/** LEGEND DRY RUN for the news desk: placeholder verdicts with no model call. */
+function exampleNews(stories) {
+  return {
+    verdicts: stories.map((s, i) =>
+      newsVerdict({
+        quality: "solid",
+        impact: ["high", "medium", "low"][i % 3],
+        sentiment: ["bullish", "bearish", "mixed", "neutral"][i % 4],
+        category: "other",
+        tickers: s.tickers || [],
+        why: "Example: what this story would mean for traders today",
+      }),
+    ),
+    model: "dry-run",
+  };
+}
+
+function exampleBriefing() {
+  return {
+    ...briefingFrom({
+      mood: "mixed",
+      headline: "Example briefing on the market right now",
+      summary: "Example: what is driving the market and which stocks are in play, written by Legend from the stories it kept.",
+      themes: [{ title: "EXAMPLE THEME", sentiment: "neutral", tickers: [] }],
+      watch: "Example: what to watch next.",
+    }),
+    model: "dry-run",
+  };
+}
+
+const STORY_PROMPT = `You are LEGEND, the news desk inside Alpha 9: Legends. A trader tapped a story to read it
+in the app instead of on the outlet's site. Write a short reader's brief of it from the TEXT given.
+summary: what happened, at most 60 words, plain and direct.
+points: the 3 to 5 key facts (numbers, names, dates, guidance), at most 20 words each.
+stocks: for each listed stock the story touches, how it touches it, at most 20 words. Only listed stocks.
+context: why it matters for the market or those stocks today, at most 35 words.
+Use only facts in the text; never invent numbers. When the TEXT is only headlines and short
+descriptions from the feed, keep to what they say and give fewer points (even one). Never write
+points about the outlet, the headline itself or when the story came out. Trust the listed stocks
+over memory. No buy, sell, trade or avoid advice; no hype; no disclaimers.`;
+
+const STORY_SCHEMA = {
+  type: "object",
+  properties: {
+    summary: { type: "string" },
+    points: { type: "array", items: { type: "string" }, maxItems: 5 },
+    stocks: {
+      type: "array",
+      maxItems: 4,
+      items: {
+        type: "object",
+        properties: { symbol: { type: "string" }, note: { type: "string" } },
+        required: ["symbol", "note"],
+        additionalProperties: false,
+      },
+    },
+    context: { type: "string" },
+  },
+  required: ["summary", "points", "stocks", "context"],
+  additionalProperties: false,
+};
+
+function storyFrom(raw, listed) {
+  return {
+    summary: text(raw?.summary),
+    points: (Array.isArray(raw?.points) ? raw.points : []).map(text).filter(Boolean).slice(0, 5),
+    stocks: (Array.isArray(raw?.stocks) ? raw.stocks : [])
+      .map((x) => ({ symbol: String(x?.symbol || "").toUpperCase().trim(), note: text(x?.note) }))
+      .filter((x) => x.note && listed.includes(x.symbol))
+      .slice(0, 4),
+    context: text(raw?.context),
+  };
+}
+
+/**
+ * Legend's brief of one story for the in-app reader, from the article's text (or the feed's
+ * headlines when the page couldn't be read). Resolves to the brief plus { model, tokens }.
+ */
+async function readStory(story, marketState) {
+  const model = await resolveModel();
+  const user = [
+    `MARKET SESSION: ${marketState}`,
+    `STORY: ${story.title} (${story.publisher}, ${ageLabel(story.ageHours)})`,
+    `LISTED STOCKS: ${story.stocks.join(", ") || "none"}`,
+    story.basis === "article" ? `TEXT (the article):\n${story.text}` : `TEXT (the article could not be opened; headlines and descriptions from the feed):\n${story.text || "none"}`,
+  ].join("\n\n");
+  const { raw, tokens } = await callModel(model, STORY_PROMPT, user, STORY_SCHEMA, "legend_story", 1000);
+  return { ...storyFrom(raw, story.stocks.map((s) => s.split(" ")[0])), model, tokens };
+}
+
+/** LEGEND DRY RUN for the reader: a placeholder brief with no model call. */
+function exampleStory(story) {
+  const first = story.stocks[0]?.split(" ")[0];
+  return {
+    ...storyFrom(
+      {
+        summary: "Example: what happened in this story, in a few plain sentences written by Legend.",
+        points: ["Example: the first key fact", "Example: the second key fact", "Example: the third key fact"],
+        stocks: first ? [{ symbol: first, note: "Example: how the story touches this stock" }] : [],
+        context: "Example: why it matters for the market today.",
+      },
+      first ? [first] : [],
+    ),
+    model: "dry-run",
+    tokens: null,
+  };
+}
+
+module.exports = {
+  analyze,
+  screen,
+  readNews,
+  briefNews,
+  status,
+  example,
+  exampleScreen,
+  exampleNews,
+  exampleBriefing,
+  readStory,
+  exampleStory,
+  usageSummary: usage.summary,
+  LEGEND_URL,
+};

@@ -240,4 +240,4 @@ async function getNews(symbol, companyName, { maxAgeMs = CACHE_MS } = {}) {
   return value;
 }
 
-module.exports = { getNews, shortCompanyName };
+module.exports = { getNews, shortCompanyName, similar, decodeEntities, stripTags, publisherDomain };

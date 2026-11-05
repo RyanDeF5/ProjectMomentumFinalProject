@@ -519,10 +519,10 @@
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: clamp(10px, 1.4vw, 18px);
-  padding: clamp(12px, 2.4vh, 18px) clamp(16px, 3vw, 48px) clamp(12px, 2.6vh, 20px);
+  padding: clamp(10px, 1.8vh, 18px) clamp(16px, 3vw, 48px) clamp(10px, 2vh, 20px);
   background: var(--a9-menu);
   border-top: 2px solid #1a506e;
-  padding-bottom: calc(clamp(12px, 2.6vh, 20px) + env(safe-area-inset-bottom, 0px));
+  padding-bottom: calc(clamp(10px, 2vh, 20px) + env(safe-area-inset-bottom, 0px));
   transition:
     transform 0.32s var(--ease-out),
     visibility 0s;
@@ -542,17 +542,17 @@
   flex-direction: column;
   align-items: flex-end;
   justify-content: flex-end;
-  min-height: clamp(60px, 12vh, 96px);
-  padding: clamp(6px, 1.4vh, 10px) 16px;
+  min-height: clamp(54px, 9vh, 96px);
+  padding: clamp(6px, 1.2vh, 10px) 16px;
   font-weight: 700;
   line-height: 0.92;
   text-align: right;
 }
 .mode__top {
-  font-size: clamp(15px, min(1.9vw, 3.6vh), 30px);
+  font-size: clamp(15px, min(1.9vw, 3vh), 30px);
 }
 .mode__bottom {
-  font-size: clamp(18px, min(2.3vw, 4.4vh), 38px);
+  font-size: clamp(18px, min(2.3vw, 3.7vh), 38px);
 }
 .mode::after {
   content: "";

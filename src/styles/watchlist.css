@@ -467,15 +467,22 @@ button:disabled > .a9-glint--idle {
   align-items: center;
   gap: 7px;
   padding: 5px 10px 3px 8px;
+  border: 0;
   background: var(--a9-pink);
   color: #fff;
+  font: inherit;
   font-size: 17px;
   font-weight: 700;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
-.garage__all {
-  gap: 7px;
+/* Opens the watchlist's settings in the Update Schedule */
+.garage__state.is-link {
+  cursor: inherit;
+  transition: filter 0.12s;
+}
+.garage__state.is-link:hover {
+  filter: brightness(1.12);
 }
 /* D C B A S squares, top right like the garage */
 .garage__filter-set {

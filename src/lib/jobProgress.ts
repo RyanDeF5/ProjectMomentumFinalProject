@@ -2,9 +2,9 @@ import { useRef } from "react";
 import type { JobProgress } from "./types";
 import { useNow } from "./watchlist";
 
-/** A background job shown in the top bar: a screener update or a watchlist update. */
+/** A background job shown in the top bar: a screener, watchlist or market news update. */
 export interface TopJob {
-  source: "screener" | "watchlist";
+  source: "screener" | "watchlist" | "news";
   /** Short name, e.g. SCREENER */
   label: string;
   /** What is happening, e.g. LEGEND IS GRADING ABCD */

@@ -112,3 +112,19 @@ export function LegendEmblem({ size = 64, working, className }: LegendEmblemProp
     </svg>
   );
 }
+
+const STAR_PATH = `M${STAR.map(([x, y]) => `${x.toFixed(2)} ${y.toFixed(2)}`).join(" L")} Z`;
+
+/**
+ * The badge at icon size for long lists: the gold hexagon and star only, three shapes instead of
+ * the full emblem's wreath of leaves (which can't be seen at 16px anyway).
+ */
+export function LegendMark({ size = 16, className }: { size?: number; className?: string }) {
+  return (
+    <svg className={`legend-mark${className ? ` ${className}` : ""}`} width={size} height={size} viewBox="11 10 98 98" aria-hidden>
+      <path d="M60 10 L92 28 L92 90 L60 108 L28 90 L28 28 Z" fill={GOLD} />
+      <path d="M60 18 L86 32 L86 86 L60 100 L34 86 L34 32 Z" fill="#0b0b0c" />
+      <path d={STAR_PATH} transform="translate(0 9)" fill={GOLD_LIGHT} />
+    </svg>
+  );
+}

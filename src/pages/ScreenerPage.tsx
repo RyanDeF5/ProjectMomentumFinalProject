@@ -1,19 +1,17 @@
 import { memo, useState, type Ref } from "react";
 import { sfx } from "../audio/sfx";
-import { compactFormatter, formatTokens } from "../lib/numbers";
-import { CATALYST_LABELS, newestStory, scanNow, screenerIntervalLabel, updateCost, updateScreenerSettings, type Screener } from "../lib/screener";
+import { compactFormatter } from "../lib/numbers";
+import { CATALYST_LABELS, newestStory, type Screener } from "../lib/screener";
 import type { ScreenerEntry } from "../lib/types";
 import { agoLabel, useNow } from "../lib/watchlist";
 import { Button } from "../ui/Button";
 import { Diamond } from "../ui/Diamond";
-import { Dropdown } from "../ui/Dropdown";
 import { Glint } from "../ui/Glint";
-import { TimerIcon } from "../ui/Icons";
 import { LegendEmblem } from "../ui/LegendEmblem";
 import { Reveal } from "../ui/Reveal";
 import { RevealText } from "../ui/RevealText";
-import { TokenIcon } from "../ui/TokenIcon";
 import { faviconUrl } from "../lib/api";
+import { JobStatusChip } from "../components/JobStatusChip";
 
 interface ScreenerPageProps {
   screenRef: Ref<HTMLElement>;
@@ -21,21 +19,11 @@ interface ScreenerPageProps {
   screener: Screener;
   /** Open a graded stock's full read on the summary */
   onOpen: (entry: ScreenerEntry) => void;
+  /** Open the screener's settings in the Update Schedule */
+  onOpenSchedule: () => void;
 }
 
 type Tab = "board" | "criteria";
-
-function countdown(ms: number): string {
-  const s = Math.max(0, Math.ceil(ms / 1000));
-  return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
-}
-
-function duration(ms: number): string {
-  const s = Math.max(1, Math.round(ms / 1000));
-  if (s < 60) return `${s}S`;
-  const m = Math.floor(s / 60);
-  return m < 60 ? `${m}M ${String(s % 60).padStart(2, "0")}S` : `${Math.floor(m / 60)}H ${String(m % 60).padStart(2, "0")}M`;
-}
 
 /** "12M AGO" from a story's publish time. */
 function storyAge(publishedAt: string, now: number): string {
@@ -198,32 +186,12 @@ function Criteria({ screener }: { screener: Screener }) {
   );
 }
 
-/** The pink chip by the title: what the screener is doing, ticking every second. */
-function StatusChip({ screener, active }: { screener: Screener; active: boolean }) {
-  const { engine, settings, connected, clockOffset } = screener;
-  const busy = engine.state === "scanning" || engine.state === "analyzing" || engine.state === "waiting";
-  const now = useNow(1000, active && engine.state === "idle" && Boolean(engine.nextAt));
-  let status: string;
-  if (!connected) status = "CONNECTING";
-  else if (engine.state === "waiting") status = "WAITING FOR YOUR SCAN";
-  else if (busy) status = "UPDATING";
-  else if (engine.state === "paused" || !settings.interval) status = "AUTO UPDATE PAUSED";
-  else if (engine.nextAt) status = `NEXT UPDATE ${countdown(engine.nextAt - (now - clockOffset))}`;
-  else status = "READY";
-  return (
-    <Reveal kind="panel" wash="pink" className={`mp__timer${busy ? " is-busy" : ""}`}>
-      {busy ? <Diamond size={18} /> : <TimerIcon size={20} />}
-      <span aria-live="polite">{status}</span>
-    </Reveal>
-  );
-}
-
 /** The stock screener, laid out like the game's multiplayer rank rewards. */
-export function ScreenerPage({ screenRef, active, screener, onOpen }: ScreenerPageProps) {
+export function ScreenerPage({ screenRef, active, screener, onOpen, onOpenSchedule }: ScreenerPageProps) {
   // "Graded 2m ago" labels don't need a per-second tick
   const now = useNow(5000, active);
   const [tab, setTab] = useState<Tab>("board");
-  const { board, engine, settings, stats, connected, clockOffset, estimate } = screener;
+  const { board, engine, settings, stats, connected, clockOffset } = screener;
   const busy = engine.state === "scanning" || engine.state === "analyzing" || engine.state === "waiting";
   const serverNow = now - clockOffset;
   const grading = engine.state === "analyzing" ? engine.symbol : null;
@@ -234,12 +202,6 @@ export function ScreenerPage({ screenRef, active, screener, onOpen }: ScreenerPa
   const queued = board.filter((e) => !e.grade).length;
   const passed = board.filter((e) => e.grade === "F").length;
   const topSetups = board.filter((e) => e.grade === "A+" || e.grade === "A").length;
-
-  // What one update costs: every stock shown is graded
-  const count = Math.min(settings.boardSize, stats?.movers || settings.boardSize);
-  const cost = updateCost(estimate, count, settings.dryRun);
-  const perHour = settings.interval ? (cost.tokens * 3600_000) / (settings.interval * 1000 + cost.ms) : 0;
-  const lastTook = stats?.finishedAt && stats.lastStartedAt && stats.finishedAt > stats.lastStartedAt ? stats.finishedAt - stats.lastStartedAt : null;
 
   const checked = board.length ? `LEGEND RESEARCHED THE ${board.length} HOTTEST MOVERS${passed ? `, PASSED ON ${passed} (RED FLAGS OR NO REAL CATALYST)` : ""}${queued ? `, ${busy ? "CHECKING" : "WILL CHECK"} ${queued} MORE` : ""}` : "";
 
@@ -255,19 +217,29 @@ export function ScreenerPage({ screenRef, active, screener, onOpen }: ScreenerPa
               <RevealText>STOCK SCREENER</RevealText>
             </h1>
             <div className="mp__chips">
-              <StatusChip screener={screener} active={active} />
+              <JobStatusChip
+                connected={connected}
+                state={engine.state}
+                busy={busy}
+                interval={settings.interval}
+                nextAt={engine.nextAt}
+                reason={engine.reason}
+                clockOffset={clockOffset}
+                active={active}
+                onOpen={onOpenSchedule}
+              />
               <Reveal kind="panel" className="mp__legend">
                 <LegendEmblem size={22} />
                 <span>{board.length ? `${ranked.length} SETUP${ranked.length === 1 ? "" : "S"} · ${board.length} CHECKED` : "LEGEND"}</span>
+              </Reveal>
+              <Reveal kind="fade" className="mp__aplus">
+                <span className="mp__aplus-tag">A+/A</span>
+                <span className="mp__aplus-value">{topSetups}</span>
               </Reveal>
             </div>
           </div>
 
           <div className="mp__side">
-            <Reveal kind="fade" className="mp__aplus">
-              <span className="mp__aplus-tag">A+/A SETUPS</span>
-              <span className="mp__aplus-value">{topSetups}</span>
-            </Reveal>
             <div className="mp__tabs" role="tablist">
               {(
                 [
@@ -310,6 +282,7 @@ export function ScreenerPage({ screenRef, active, screener, onOpen }: ScreenerPa
               <ul className="sboard">
                 {stats && (
                   <li className="sboard__meta">
+                    {stats.finishedAt ? `UPDATED ${agoLabel(stats.finishedAt, serverNow)} · ` : ""}
                     {stats.candidates} STOCKS SCANNED · {stats.movers} MOVERS · {checked}. RANKED BY GRADE, THEN SCORE · ▲▼ = RANK CHANGE SINCE THE LAST UPDATE · TAP A
                     STOCK FOR LEGEND'S FULL READ
                   </li>
@@ -326,68 +299,22 @@ export function ScreenerPage({ screenRef, active, screener, onOpen }: ScreenerPa
                   <Diamond size={46} />
                   <span>{board.length ? `LEGEND IS RESEARCHING THE ${board.length} HOTTEST MOVERS; GOOD SETUPS APPEAR HERE AS THEY'RE FOUND` : engine.step}</span>
                 </>
-              ) : board.length ? (
-                <span>
-                  NO GOOD SETUPS RIGHT NOW. {checked}. PRESS <strong>UPDATE NOW</strong> TO LOOK AGAIN.
-                </span>
               ) : (
-                <span>
-                  THE SCREENER IS {settings.interval ? "WAITING FOR ITS NEXT UPDATE" : "PAUSED"}. PRESS <strong>UPDATE NOW</strong> OR SET AUTO UPDATE TO LET LEGEND HUNT
-                  FOR MOMENTUM SETUPS.
-                </span>
+                <>
+                  <span>
+                    {board.length
+                      ? `NO GOOD SETUPS RIGHT NOW. ${checked}.`
+                      : `THE SCREENER IS ${settings.interval ? "WAITING FOR ITS NEXT UPDATE" : "PAUSED"}. SET HOW OFTEN LEGEND HUNTS FOR SETUPS, OR RUN AN UPDATE NOW, IN THE UPDATE SCHEDULE.`}
+                  </span>
+                  <Button variant="normal" onClick={onOpenSchedule}>
+                    OPEN UPDATE SCHEDULE
+                  </Button>
+                </>
               )}
             </div>
           )}
         </Reveal>
 
-        <footer className="mp__foot">
-          <Reveal kind="panel" className="mp__auto">
-            <Dropdown
-              label="CHECK TOP"
-              placement="up"
-              options={screener.boardSizes.map((n) => ({ value: n, label: `${n} STOCKS` }))}
-              value={settings.boardSize}
-              onChange={(boardSize) => void updateScreenerSettings({ boardSize })}
-            />
-          </Reveal>
-          <Reveal kind="panel" className="mp__auto">
-            <Dropdown
-              label="AUTO UPDATE"
-              placement="up"
-              options={screener.intervals.map((s) => ({ value: s, label: screenerIntervalLabel(s) }))}
-              value={settings.interval}
-              onChange={(interval) => void updateScreenerSettings({ interval })}
-            />
-          </Reveal>
-          <Reveal kind="fade" className="mp__stats">
-            <span className="mp__stat">
-              <span className="mp__stat-label">PER UPDATE</span>
-              <span className="mp__stat-value">
-                <TokenIcon size={20} />
-                {settings.dryRun ? "0" : `~${formatTokens(cost.tokens)}`}
-              </span>
-              <span className="mp__stat-sub">
-                {settings.dryRun ? "DRY RUN: NO TOKENS" : `${count} GRADES × ~${formatTokens(estimate.tokensPerGrade)}${estimate.measured ? "" : " (EST.)"}`}
-              </span>
-            </span>
-            <span className="mp__stat">
-              <span className="mp__stat-label">TAKES</span>
-              <span className="mp__stat-value">~{duration(cost.ms)}</span>
-              <span className="mp__stat-sub">{perHour ? `~${formatTokens(perHour)} TOKENS / HOUR` : lastTook ? `LAST ONE ${duration(lastTook)}` : " "}</span>
-            </span>
-            <span className="mp__stat">
-              <span className="mp__stat-label">LAST UPDATE</span>
-              <span className="mp__stat-value">{stats?.finishedAt ? agoLabel(stats.finishedAt, serverNow) : "--"}</span>
-              <span className="mp__stat-sub">{stats ? `${stats.movers} MOVERS FOUND` : " "}</span>
-            </span>
-          </Reveal>
-          <Reveal kind="slide" wash="none" className="mp__go">
-            <Button variant="buy" size="lg" className="mp__scan" disabled={busy || !connected} onClick={() => void scanNow()}>
-              {busy ? "UPDATING" : "UPDATE NOW"}
-              <Glint idle />
-            </Button>
-          </Reveal>
-        </footer>
       </div>
     </section>
   );

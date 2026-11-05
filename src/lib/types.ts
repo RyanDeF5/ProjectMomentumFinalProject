@@ -180,7 +180,10 @@ export interface JobProgress {
 
 /** What the update loop is doing */
 export interface WatchEngine {
-  state: "offline" | "idle" | "updating" | "waiting" | "paused";
+  /** offhours: outside the update schedule; limit: the daily token limit is used up */
+  state: "offline" | "idle" | "updating" | "waiting" | "paused" | "offhours" | "limit";
+  /** Why updates are held (offhours, limit) */
+  reason?: string | null;
   symbol: string | null;
   nextAt: number | null;
   progress?: JobProgress | null;
@@ -325,7 +328,8 @@ export interface ScreenerStats {
 }
 
 export interface ScreenerEngine {
-  state: "offline" | "paused" | "idle" | "scanning" | "analyzing" | "waiting";
+  state: "offline" | "paused" | "idle" | "scanning" | "analyzing" | "waiting" | "offhours" | "limit";
+  reason?: string | null;
   /** What the scan is doing, e.g. LEGEND IS GRADING ABCD */
   step: string | null;
   symbol: string | null;
@@ -343,4 +347,199 @@ export interface ScreenerSnapshot {
   boardSizes: number[];
   estimate: ScreenerEstimate;
   now: number;
+}
+
+// ---------- Market news ----------
+
+export type NewsQuality = "solid" | "speculative" | "promo" | "stale" | "offtopic";
+export type NewsImpact = "high" | "medium" | "low" | "none";
+export type NewsSentiment = "bullish" | "bearish" | "mixed" | "neutral";
+
+/** A stock a story is about, with its move now */
+export interface NewsTicker {
+  symbol: string;
+  name: string;
+  price: number;
+  change: number | null;
+  /** PRE: the change is the pre-market move; DAY: the day's move */
+  session: "PRE" | "DAY";
+  /** After-hours move, when there is one */
+  after: number | null;
+}
+
+/** One story in the market news feed (the same news from several outlets is one story) */
+export interface MarketStory {
+  id: string;
+  title: string;
+  url: string;
+  publisher: string;
+  domain: string | null;
+  publishedAt: string;
+  summary: string;
+  /** How many outlets ran it */
+  coverage: number;
+  outlets: string[];
+  tickers: NewsTicker[];
+  /** Legend's read; null until read */
+  ai: {
+    quality: NewsQuality;
+    impact: NewsImpact;
+    sentiment: NewsSentiment;
+    category: string;
+    tickers: string[];
+    why: string;
+  } | null;
+  readAt: number | null;
+  firstSeen: number;
+  /** How hot the story is now (impact, recency, coverage, moves) */
+  hot: number;
+  /** One link per outlet that ran it, the story's own first (missing on stories from older updates) */
+  links?: { publisher: string; url: string; domain: string | null }[];
+  /** Legend has already written the reader's brief */
+  briefed?: boolean;
+}
+
+/** Legend's brief of one story, for the in-app reader */
+export interface StoryRead {
+  summary: string;
+  points: string[];
+  stocks: { symbol: string; note: string }[];
+  context: string;
+  /** "article": Legend read the outlet's page; "feed": the page couldn't be opened, so the headlines */
+  basis: "article" | "feed";
+  /** Characters of the article Legend read */
+  chars: number;
+  image: string | null;
+  /** The outlet's page (Google News redirects resolved) */
+  url: string;
+  at: number;
+  model: string;
+  tokens: { total?: number } | null;
+}
+
+export interface NewsBriefing {
+  mood: "risk_on" | "risk_off" | "mixed" | "quiet";
+  headline: string;
+  summary: string;
+  themes: { title: string; sentiment: NewsSentiment; tickers: string[] }[];
+  watch: string;
+  at: number;
+  session: MarketState;
+}
+
+/** An index, future or gauge on the market pulse strip */
+export interface PulseQuote {
+  symbol: string;
+  label: string;
+  price: number;
+  change: number;
+  yield: boolean;
+}
+
+export interface NewsSettings {
+  /** Seconds from one update's end to the next; 0 is off */
+  interval: number;
+  dryRun: boolean;
+  /** Stories Legend reads per update */
+  storyCount: number;
+}
+
+export interface NewsStats {
+  startedAt: number;
+  finishedAt: number;
+  lastStartedAt?: number;
+  /** Items from all sources, stories after merging duplicates, stories Legend has read and kept */
+  gathered: number;
+  clustered: number;
+  read: number;
+  readNow?: number;
+  kept: number;
+  hidden: { promo: number; stale: number; offtopic: number; minor: number };
+  sources: Record<string, number | string>;
+  storyCount?: number;
+  session: MarketState;
+  error: string | null;
+}
+
+export interface NewsEstimate {
+  tokensPerStory: number;
+  tokensPerBriefing: number;
+  measured: boolean;
+  /** Stories per Legend call, and the time each call takes */
+  batch: number;
+  batchMs: number;
+  baseMs: number;
+  briefMs: number;
+}
+
+export interface NewsEngine {
+  state: "offline" | "paused" | "idle" | "gathering" | "reading" | "waiting" | "offhours" | "limit";
+  step: string | null;
+  nextAt: number | null;
+  progress?: JobProgress | null;
+  reason?: string | null;
+  now?: number;
+}
+
+export interface NewsSnapshot {
+  stories: MarketStory[];
+  briefing: NewsBriefing | null;
+  pulse: PulseQuote[];
+  stats: NewsStats | null;
+  estimate: NewsEstimate;
+  settings: NewsSettings;
+  engine: NewsEngine;
+  intervals: number[];
+  storyCounts: number[];
+  now: number;
+}
+
+// ---------- Update schedule ----------
+
+export type JobKey = "watchlist" | "screener" | "news";
+export type SessionKey = "premarket" | "open" | "afterhours" | "overnight" | "weekend";
+
+/** A window of hours in minutes after midnight; may run past midnight */
+export interface HoursWindow {
+  from: number;
+  to: number;
+}
+
+export interface JobSchedule {
+  sessions: SessionKey[];
+  hours: HoursWindow | null;
+  resume: number | null;
+}
+
+export interface ScheduleSnapshot {
+  paused: boolean;
+  dailyTokenLimit: number;
+  background: boolean;
+  jobs: Record<JobKey, JobSchedule>;
+  sessions: SessionKey[];
+  tokenLimits: number[];
+  info: {
+    watchlist: { interval: number; intervals: number[]; count: number; limit: number; engine: WatchEngine; estimate: { tokensPerUpdate: number; measured: boolean; updateMs: number }; resume: number };
+    screener: { interval: number; intervals: number[]; boardSize: number; boardSizes: number[]; movers: number | null; engine: ScreenerEngine; estimate: ScreenerEstimate; lastFinishedAt: number; resume: number };
+    news: { interval: number; intervals: number[]; storyCount: number; storyCounts: number[]; engine: NewsEngine; estimate: NewsEstimate; lastFinishedAt: number; resume: number };
+  };
+  /** Tokens used today */
+  today: number;
+  now: number;
+}
+
+export interface JobSchedulePatch {
+  sessions?: SessionKey[];
+  hours?: HoursWindow | null;
+  enabled?: boolean;
+  interval?: number;
+  boardSize?: number;
+  storyCount?: number;
+}
+
+export interface SchedulePatch {
+  paused?: boolean;
+  dailyTokenLimit?: number;
+  background?: boolean;
+  jobs?: Partial<Record<JobKey, JobSchedulePatch>>;
 }

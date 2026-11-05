@@ -9,6 +9,8 @@ const legend = require("./legend");
 const { getNews } = require("./news");
 const watchlist = require("./watchlist");
 const screener = require("./screener");
+const marketNews = require("./marketnews");
+const schedule = require("./schedule");
 
 const app = express();
 app.use(cors());
@@ -97,6 +99,7 @@ app.get("/favicon", async (req, res) => {
 let scansInProgress = 0;
 watchlist.setScanCheck(() => scansInProgress > 0);
 screener.setScanCheck(() => scansInProgress > 0);
+marketNews.setScanCheck(() => scansInProgress > 0);
 
 // Legend analysis of a stock's momentum setup, informed by its recent news
 app.post("/legend", async (req, res) => {
@@ -116,6 +119,7 @@ app.post("/legend", async (req, res) => {
     scansInProgress--;
     watchlist.poke();
     screener.poke();
+    marketNews.poke();
   }
 });
 
@@ -190,6 +194,89 @@ app.put("/screener/settings", (req, res) => {
   }
 });
 
+// Market news: the day's headlines read by Legend, with a briefing on the market
+app.get("/market-news", (req, res) => res.json(marketNews.snapshot()));
+app.get("/market-news/stream", (req, res) => marketNews.connect(req, res));
+app.post("/market-news/update", (req, res) => {
+  res.status(marketNews.updateNow() ? 202 : 409).end();
+});
+// The in-app reader: Legend's brief of one story (written once and kept; { again: true } rewrites it)
+app.post("/market-news/story/:id/read", async (req, res) => {
+  try {
+    res.json(await marketNews.storyRead(String(req.params.id), Boolean(req.body?.again)));
+  } catch (err) {
+    console.error("Market news: story read failed:", err.message);
+    res.status(err.status || 502).json({ error: err.message });
+  }
+});
+app.put("/market-news/settings", (req, res) => {
+  try {
+    res.json(marketNews.updateSettings(req.body || {}));
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+// The update schedule for all three AI jobs. How often each runs lives with the job itself; the
+// sessions, hours, daily token limit and background running live in schedule.js.
+const JOBS = {
+  watchlist: { module: watchlist, defaultInterval: watchlist.DEFAULT_INTERVAL },
+  screener: { module: screener, defaultInterval: 300 },
+  news: { module: marketNews, defaultInterval: marketNews.DEFAULT_INTERVAL },
+};
+
+function scheduleSnapshot() {
+  return {
+    ...schedule.settings(),
+    sessions: schedule.SESSIONS,
+    tokenLimits: schedule.TOKEN_LIMITS,
+    info: Object.fromEntries(Object.entries(JOBS).map(([key, job]) => [key, { ...job.module.scheduleInfo(), resume: schedule.resumeOf(key) || job.defaultInterval }])),
+    today: legend.usageSummary().today.tokens,
+    now: Date.now(),
+  };
+}
+
+// Any schedule change can free (or hold) a job
+schedule.onChange(() => {
+  watchlist.poke();
+  screener.poke();
+  marketNews.poke();
+});
+
+app.get("/schedule", (req, res) => res.json(scheduleSnapshot()));
+
+/**
+ * PUT /schedule: { paused, dailyTokenLimit, background, jobs: { [job]: { sessions, hours, enabled,
+ * interval, boardSize, storyCount } } }. `enabled: false` remembers the interval and switches the
+ * job off; `enabled: true` brings that interval back.
+ */
+app.put("/schedule", (req, res) => {
+  try {
+    const body = req.body || {};
+    const jobs = body.jobs || {};
+    for (const [key, patch] of Object.entries(jobs)) {
+      const job = JOBS[key];
+      if (!job || !patch) continue;
+      const current = job.module.scheduleInfo().interval;
+      const change = {};
+      if (patch.enabled === false && current) {
+        schedule.setResume(key, current);
+        change.interval = 0;
+      } else if (patch.enabled === true && !current) {
+        change.interval = schedule.resumeOf(key) || job.defaultInterval;
+      }
+      if (patch.interval !== undefined) change.interval = Number(patch.interval);
+      if (key === "screener" && patch.boardSize !== undefined) change.boardSize = patch.boardSize;
+      if (key === "news" && patch.storyCount !== undefined) change.storyCount = patch.storyCount;
+      if (Object.keys(change).length) job.module.updateSettings(change);
+    }
+    schedule.update({ ...body, jobs });
+    res.json(scheduleSnapshot());
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
 // Serve the built React site (npm run build) from the same origin as the API
 app.use(express.static(path.join(__dirname, "..", "dist")));
 
@@ -213,4 +300,11 @@ function listen(port, fallback) {
 }
 
 listen(PORT, FALLBACK_PORT);
+
+// With KEEP RUNNING on, the jobs start without waiting for a page to connect
+if (schedule.background()) {
+  watchlist.poke();
+  screener.poke();
+  marketNews.poke();
+}
 

@@ -270,5 +270,7 @@ export function agoLabel(at: number | null, now: number): string {
 }
 
 export function intervalLabel(seconds: number): string {
-  return seconds ? `EVERY ${seconds}S` : "PAUSED";
+  if (!seconds) return "PAUSED";
+  if (seconds >= 3600) return `EVERY ${seconds / 3600}H`;
+  return seconds >= 60 ? `EVERY ${seconds / 60} MIN` : `EVERY ${seconds}S`;
 }

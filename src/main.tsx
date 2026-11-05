@@ -8,6 +8,8 @@ import "./styles/screens.css";
 import "./styles/watchlist.css";
 import "./styles/notifications.css";
 import "./styles/screener.css";
+import "./styles/news.css";
+import "./styles/schedule.css";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

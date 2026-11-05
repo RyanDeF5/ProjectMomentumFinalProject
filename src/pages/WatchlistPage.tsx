@@ -8,12 +8,10 @@ import {
   CLASS_ORDER,
   SORTS,
   addToWatchlist,
-  intervalLabel,
   refreshWatchItem,
   removeFromWatchlist,
   setWatchSort,
   sortWatchItems,
-  updateWatchSettings,
   useNow,
   useWatchSort,
   watchClass,
@@ -23,8 +21,9 @@ import {
 import { Button } from "../ui/Button";
 import { Dialog } from "../ui/Dialog";
 import { Diamond } from "../ui/Diamond";
+import { heldLabel } from "../components/JobStatusChip";
 import { Dropdown } from "../ui/Dropdown";
-import { ChevronDownIcon, RefreshIcon, SearchIcon, TimerIcon } from "../ui/Icons";
+import { ArrowRightIcon, ChevronDownIcon, SearchIcon, TimerIcon } from "../ui/Icons";
 import { Reveal } from "../ui/Reveal";
 import { SectionTitle } from "../ui/SectionTitle";
 
@@ -33,6 +32,8 @@ interface WatchlistPageProps {
   active: boolean;
   watchlist: Watchlist;
   onOpenItem: (item: WatchItem) => void;
+  /** Open the watchlist's settings in the Update Schedule */
+  onOpenSchedule: () => void;
 }
 
 // Class filter in the garage's order
@@ -61,6 +62,7 @@ export function WatchlistPage({
   active,
   watchlist,
   onOpenItem,
+  onOpenSchedule,
 }: WatchlistPageProps) {
   const now = useNow(1000, active);
   const sort = useWatchSort();
@@ -71,7 +73,7 @@ export function WatchlistPage({
   const [removing, setRemoving] = useState<WatchItem | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const { items, settings, engine, limit, connected, clockOffset } = watchlist;
+  const { items, engine, limit, connected, clockOffset } = watchlist;
   const visible = sortWatchItems(
     items.filter((item) => filter === "ALL" || watchClass(item) === filter),
     sort,
@@ -97,6 +99,7 @@ export function WatchlistPage({
   else if (engine.state === "updating") status = `UPDATING ${engine.symbol}`;
   else if (engine.state === "waiting") status = "WAITING FOR YOUR SCAN";
   else if (engine.state === "paused") status = "UPDATES PAUSED";
+  else if (engine.state === "offhours" || engine.state === "limit") status = heldLabel(engine.state, engine.reason, engine.nextAt, serverNow) ?? "OFF HOURS";
   else if (engine.nextAt && engine.symbol) status = `NEXT: ${engine.symbol} ${countdown(engine.nextAt - serverNow)}`;
   else status = items.length ? "UP TO DATE" : "READY";
   const updating = connected && engine.state === "updating";
@@ -149,9 +152,18 @@ export function WatchlistPage({
             <Reveal kind="panel" className="garage__count">
               {items.length}/{limit} STOCKS
             </Reveal>
-            <Reveal kind="panel" wash="pink" className={`garage__state${updating ? " is-busy" : ""}`}>
+            <Reveal
+              kind="panel"
+              wash="pink"
+              as="button"
+              type="button"
+              onClick={onOpenSchedule}
+              title="Set how often and when the watchlist updates"
+              className={`garage__state is-link${updating ? " is-busy" : ""}`}
+            >
               {updating ? <Diamond size={16} /> : <TimerIcon size={17} />}
               <span aria-live="polite">{status}</span>
+              <ArrowRightIcon size={14} />
             </Reveal>
           </div>
 
@@ -235,28 +247,6 @@ export function WatchlistPage({
               {DIRECTION_LABELS[sort.key][sort.descending ? 0 : 1]}
               <ChevronDownIcon size={14} />
             </button>
-            <Dropdown
-              label="UPDATES"
-              options={watchlist.intervals.map((s) => ({
-                value: s,
-                label: intervalLabel(s),
-              }))}
-              value={settings.interval}
-              onChange={(interval) => void updateWatchSettings({ interval })}
-            />
-            {items.length > 0 && (
-              <button
-                type="button"
-                className="garage__dir garage__all"
-                onClick={() => {
-                  sfx.play("tap");
-                  items.forEach((item) => void refreshWatchItem(item.symbol));
-                }}
-              >
-                <RefreshIcon size={14} />
-                UPDATE ALL NOW
-              </button>
-            )}
           </div>
         </Reveal>
 

@@ -80,16 +80,7 @@ export async function updateScreenerSettings(patch: Partial<Pick<ScreenerSetting
   await request("/screener/settings", { method: "PUT", body: JSON.stringify(patch) });
 }
 
-export function screenerIntervalLabel(seconds: number): string {
-  if (!seconds) return "PAUSED";
-  if (seconds >= 3600) return `EVERY ${seconds / 3600}H`;
-  return `EVERY ${seconds >= 60 ? `${seconds / 60} MIN` : `${seconds}S`}`;
-}
 
-/** Tokens and time one update is expected to take with `count` stocks graded. */
-export function updateCost(estimate: ScreenerEstimate, count: number, dryRun: boolean) {
-  return { tokens: dryRun ? 0 : count * estimate.tokensPerGrade, ms: estimate.baseMs + count * (dryRun ? 50 : estimate.gradeMs) };
-}
 
 /** The newest story in a list (stories are ranked by relevance, not time). */
 export function newestStory<T extends { publishedAt: string }>(news: T[]): T | null {
