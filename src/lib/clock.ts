@@ -24,6 +24,32 @@ function getMarketState(now: Date): MarketState {
   return "MARKET CLOSED";
 }
 
+const WEEKDAYS = ["SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY"];
+
+/** The latest trading day as of now: today from 4 AM on a weekday, otherwise the weekday before. */
+export function lastTradingDay(now = new Date()): Date {
+  const day = new Date(now);
+  if (day.getHours() < 4) day.setDate(day.getDate() - 1);
+  while (day.getDay() === 0 || day.getDay() === 6) day.setDate(day.getDate() - 1);
+  return day;
+}
+
+/**
+ * Which day a price move belongs to, for "% UP TODAY": TODAY, YESTERDAY, the weekday (FRIDAY) within
+ * the week, or the date. Uses the quote's own time when there is one (so holidays come out right),
+ * otherwise the latest trading day by the clock (on a weekend, a stock's change is Friday's).
+ */
+export function moveDayLabel(sessionAt?: string | number | null, now = new Date()): string {
+  const parsed = sessionAt ? new Date(sessionAt) : null;
+  const at = parsed && Number.isFinite(parsed.getTime()) ? parsed : lastTradingDay(now);
+  const startOf = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const days = Math.round((startOf(now) - startOf(at)) / 86_400_000);
+  if (days <= 0) return "TODAY";
+  if (days === 1) return "YESTERDAY";
+  if (days < 7) return `ON ${WEEKDAYS[at.getDay()]}`;
+  return `ON ${at.toLocaleString("en-US", { month: "short", day: "numeric" }).toUpperCase()}`;
+}
+
 function getDate(now: Date): string {
   const month = now.toLocaleString("default", { month: "long" });
   const year = now.getFullYear();

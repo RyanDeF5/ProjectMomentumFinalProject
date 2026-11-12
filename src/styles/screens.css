@@ -2723,3 +2723,133 @@
 .topbar__line.is-held .topbar__line-edge {
   display: none;
 }
+
+/* ---------- Several background jobs at once ---------- */
+/* Each job has its own color, on its tile edge, its row and its loading line */
+.jobtile.is-screener,
+.jobrow.is-screener,
+.topbar__line.is-screener {
+  --job-c: var(--a9-lime);
+  --job-glow: rgba(195, 251, 18, 0.55);
+}
+.jobtile.is-news,
+.jobrow.is-news,
+.topbar__line.is-news {
+  --job-c: var(--a9-cyan);
+  --job-glow: rgba(52, 236, 250, 0.55);
+}
+.jobtile.is-watchlist,
+.jobrow.is-watchlist,
+.topbar__line.is-watchlist {
+  --job-c: var(--a9-pink);
+  --job-glow: rgba(255, 0, 84, 0.55);
+}
+.jobtile:not(.is-held) {
+  box-shadow: inset 3px 0 0 var(--job-c, var(--a9-lime));
+}
+.jobtile .jobtile__label strong {
+  color: var(--job-c, var(--a9-lime));
+}
+.topbar__line .topbar__line-fill {
+  background: var(--job-c, var(--a9-lime));
+  box-shadow: 0 0 8px var(--job-glow, rgba(195, 251, 18, 0.55));
+}
+.topbar__line .topbar__line-edge {
+  box-shadow: 0 0 8px 2px var(--job-glow, rgba(195, 251, 18, 0.8));
+}
+/* Stacked lines, one per job, from the bar's bottom edge up */
+.topbar__line.is-stacked {
+  height: 2px;
+  bottom: calc(-1px + var(--line-i, 0) * 3px);
+}
+
+/* The rows: one per job, filling the tile's height between them */
+.jobstack {
+  flex: none;
+  width: min(320px, 100cqw);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 2px 0;
+  animation: signal-in 0.35s ease-out both;
+}
+.jobrow {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px 0 11px;
+  border: 0;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.04);
+  box-shadow: inset 3px 0 0 var(--job-c);
+  color: #fff;
+  font: inherit;
+  text-align: left;
+  cursor: inherit;
+}
+.jobrow:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.09);
+}
+.jobrow.is-held {
+  box-shadow: inset 3px 0 0 #ffc21a;
+}
+/* The row's own progress, a thin fill along its bottom */
+.jobrow__fill {
+  position: absolute;
+  left: 3px;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: var(--job-c);
+  transform-origin: left;
+  transition: transform 0.25s linear;
+}
+.jobrow.is-held .jobrow__fill {
+  background: #ffc21a;
+}
+.jobrow__name {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+.jobrow__step {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--a9-dim);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  font-variant-numeric: tabular-nums;
+}
+.jobrow__pct {
+  color: var(--job-c);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+/* Clear of the stacked loading lines along the bar's bottom edge (3px each) */
+.jobstack.is-2 {
+  padding-bottom: 5px;
+}
+.jobstack.is-3 {
+  padding-bottom: 8px;
+}
+/* Three at once: tighter rows */
+.jobstack.is-3 .jobrow__name {
+  font-size: 11px;
+}
+.jobstack.is-3 .jobrow__pct {
+  font-size: 12px;
+}
+/* Short of room: name and percentage only */
+@container (max-width: 179px) {
+  .jobrow__step {
+    visibility: hidden;
+  }
+}

@@ -388,3 +388,55 @@
   font-weight: 700;
   color: #ff3563;
 }
+
+/* ---------- Developer reset (DEV OPTIONS only) ---------- */
+/* Amber, dashed and tagged DEV so it can't be mistaken for a player-facing control */
+.devreset {
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 30px;
+  padding: 3px 10px 2px 3px;
+  border: 0;
+  background: rgba(255, 194, 26, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(255, 194, 26, 0.75);
+  outline: 1px dashed rgba(255, 194, 26, 0.45);
+  outline-offset: 2px;
+  color: #ffc21a;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  cursor: inherit;
+}
+.devreset:hover:not(:disabled) {
+  background: rgba(255, 194, 26, 0.18);
+}
+.devreset:disabled {
+  opacity: 0.7;
+}
+.devreset.is-busy svg {
+  animation: devreset-spin 0.8s linear infinite;
+}
+.devreset.is-done {
+  color: var(--a9-lime);
+  box-shadow: inset 0 0 0 1px var(--a9-lime);
+}
+.devreset.is-failed {
+  color: #ff4d7d;
+  box-shadow: inset 0 0 0 1px #ff4d7d;
+}
+.devreset__tag {
+  padding: 3px 5px 2px;
+  background: #ffc21a;
+  color: var(--a9-dark);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+}
+@keyframes devreset-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

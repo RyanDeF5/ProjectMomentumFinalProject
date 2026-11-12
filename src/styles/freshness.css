@@ -1,0 +1,218 @@
+/* ---------- How old a page's data is ----------
+   The age chip by the title (dark while fresh, orange when aging, pink when stale or old) and the
+   warning strip over stale (orange) or old (pink) data, in the game's caution colors. */
+
+.agechip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px 1px 7px;
+  background: #0d1b33;
+  color: #dfe8f5;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.agechip svg {
+  flex: none;
+  color: var(--a9-lime);
+}
+.agechip.is-aging {
+  background: #ff9d00;
+  color: var(--a9-dark);
+}
+.agechip.is-aging svg {
+  color: var(--a9-dark);
+}
+.agechip.is-stale,
+.agechip.is-old {
+  background: var(--a9-pink);
+  color: #fff;
+}
+.agechip.is-stale svg,
+.agechip.is-old svg {
+  color: #fff;
+}
+.agechip.is-old {
+  animation: stale-blink 1.6s ease-in-out infinite;
+}
+@keyframes stale-blink {
+  50% {
+    filter: brightness(1.25);
+  }
+}
+
+/* The warning strip */
+.stale {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 10px;
+  padding: 7px 8px 7px 0;
+  background: repeating-linear-gradient(135deg, #ffb31a 0 14px, #ff9d00 14px 28px);
+  color: var(--a9-dark);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: 0.02em;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.3);
+}
+.stale.is-old {
+  background: repeating-linear-gradient(135deg, #ff0054 0 14px, #e6004c 14px 28px);
+  color: #fff;
+}
+.stale.is-busy {
+  background: #13233c;
+  color: #dfe8f5;
+}
+.stale__icon {
+  flex: none;
+  align-self: stretch;
+  display: grid;
+  place-items: center;
+  width: 38px;
+  margin: -7px 0;
+  background: var(--a9-dark);
+  color: #ffb31a;
+  font-size: 24px;
+  font-weight: 700;
+}
+.stale.is-old .stale__icon {
+  background: #fff;
+  color: var(--a9-pink);
+}
+.stale.is-busy .stale__icon {
+  background: transparent;
+}
+.stale__text {
+  flex: 1;
+  min-width: 0;
+}
+.stale__text b {
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.stale__update {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 14px;
+  border: 0;
+  background: var(--a9-dark);
+  color: #fff;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+  cursor: inherit;
+}
+.stale.is-old .stale__update {
+  background: #fff;
+  color: var(--a9-pink);
+}
+.stale__update:hover {
+  filter: brightness(1.15);
+}
+
+/* Old data behind the warning is dimmed, so it reads as out of date at a glance (opacity, not a
+   filter: a filter over a long scrolling list repaints badly and fought the hover states) */
+.is-old-data {
+  opacity: 0.55;
+  transition: opacity 0.3s;
+}
+
+/* Between a page's header and its board, outside the scrolling panel so the board's sticky
+   column header can't ride up over it */
+.mp > .stale {
+  margin: 12px 0 10px;
+}
+
+@media (max-width: 640px) {
+  .stale {
+    flex-wrap: wrap;
+    padding-right: 8px;
+  }
+  .stale__text {
+    flex-basis: calc(100% - 60px);
+  }
+  .stale__update {
+    margin-left: 50px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agechip.is-old {
+    animation: none;
+  }
+}
+
+/* ---------- Per-item ages ---------- */
+/* Stories over a day old: the date in orange */
+.nrow__age.is-dated {
+  color: #ff9d00;
+}
+/* Legend's briefing and the screener's "GRADED" line follow the page's colors */
+.nbrief__ago.is-aging,
+.srow__ago.is-aging {
+  color: #ff9d00;
+}
+.nbrief__ago.is-stale,
+.nbrief__ago.is-old,
+.srow__ago.is-stale,
+.srow__ago.is-old {
+  color: #ff4f86;
+  font-weight: 700;
+}
+
+/* Watchlist cards: the time turns orange, then a pink tab, and old cards dim */
+.wcard.is-aging .wcard__ago {
+  color: #ffb31a;
+  opacity: 1;
+}
+.wcard.is-stale .wcard__ago,
+.wcard.is-old .wcard__ago {
+  padding: 1px 4px 0;
+  background: var(--a9-pink);
+  color: #fff;
+  font-weight: 700;
+  opacity: 1;
+}
+.wcard.is-gold.is-aging .wcard__ago {
+  color: #a8003a;
+}
+.wcard.is-old .wcard__open {
+  opacity: 0.6;
+}
+
+.garage > .stale {
+  margin: 14px 0 0;
+}
+
+/* The summary: when its numbers are from, under the price */
+.price-hud__asof {
+  margin-top: 10px;
+  padding: 3px 9px 2px;
+  background: rgba(5, 10, 26, 0.7);
+  color: #c9d5e8;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+.price-hud__asof.is-aging {
+  background: #ff9d00;
+  color: var(--a9-dark);
+}
+.price-hud__asof.is-stale,
+.price-hud__asof.is-old {
+  background: var(--a9-pink);
+  color: #fff;
+}
+.summary__heading .stale {
+  margin: 12px 0 0;
+}

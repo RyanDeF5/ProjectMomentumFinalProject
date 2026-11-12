@@ -3,6 +3,7 @@ import { sfx } from "../audio/sfx";
 import { faviconUrl } from "../lib/api";
 import { NEWS_CATEGORY_LABELS, readStory } from "../lib/marketNews";
 import type { MarketStory, NewsTicker, StoryRead } from "../lib/types";
+import { stampLabel, whenLabel } from "../lib/freshness";
 import { agoLabel } from "../lib/watchlist";
 import { Button } from "../ui/Button";
 import { Diamond } from "../ui/Diamond";
@@ -138,7 +139,9 @@ export function StoryReader({ story, now, onBack, onScan, scanBusy }: StoryReade
           <span className="nrow__meta">
             <Favicon domain={story.domain} />
             <span className="nrow__publisher">{story.publisher.toUpperCase()}</span>
-            <span className="nrow__age">{agoLabel(at, now)}</span>
+            <span className={`nrow__age${now - at >= 86_400_000 ? " is-dated" : ""}`} title={new Date(at).toLocaleString()}>
+              PUBLISHED {stampLabel(at, now)} · {agoLabel(at, now)}
+            </span>
             {story.coverage > 1 && <span className="nrow__tag is-coverage">{story.coverage} OUTLETS</span>}
             {ai?.quality === "speculative" && <span className="nrow__tag is-spec">UNCONFIRMED</span>}
           </span>
@@ -220,7 +223,7 @@ export function StoryReader({ story, now, onBack, onScan, scanBusy }: StoryReade
                 {read.basis === "article"
                   ? `LEGEND READ THE FULL ARTICLE FROM ${story.publisher.toUpperCase()}`
                   : `${story.publisher.toUpperCase()} DOESN'T LET APPS OPEN ITS PAGE, SO LEGEND WROTE THIS FROM THE HEADLINES AND DESCRIPTIONS IN THE FEED`}
-                {` · ${agoLabel(read.at, now)}`}
+                {` · WRITTEN ${whenLabel(read.at, now)}`}
                 {tokens ? ` · ${tokens.toLocaleString("en-US")} TOKENS` : ""}
                 {" · NOT FINANCIAL ADVICE"}
               </p>

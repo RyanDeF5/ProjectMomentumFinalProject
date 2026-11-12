@@ -20,29 +20,41 @@ const fmt = (s: number) => {
 
 // ---------- Live waveform ----------
 
-/** The bass only (kick and bass line, 35-220 Hz), split log-spaced into one slice per bar */
-const BASS_LO = 35;
-const BASS_HI = 220;
-function bassBands(count: number, sampleRate: number, bins: number) {
+/**
+ * One frequency band per bar, laid out from the center outward: the bass on the middle bar(s), the
+ * vocal ranges beside it, the presence and highs on the outer bars. Bands are log-spaced from 40 Hz
+ * to 9 kHz, so the voice (about 120 Hz to 3 kHz) gets the bars either side of the bass.
+ */
+const WAVE_LO = 40;
+const WAVE_HI = 9000;
+function waveBands(count: number, sampleRate: number, bins: number) {
   const hzPerBin = sampleRate / 2 / bins;
-  return Array.from({ length: count }, (_, i) => {
-    const from = BASS_LO * (BASS_HI / BASS_LO) ** (i / count);
-    const to = BASS_LO * (BASS_HI / BASS_LO) ** ((i + 1) / count);
+  const bands = Array.from({ length: count }, (_, i) => {
+    const from = WAVE_LO * (WAVE_HI / WAVE_LO) ** (i / count);
+    const to = WAVE_LO * (WAVE_HI / WAVE_LO) ** ((i + 1) / count);
     const a = Math.max(1, Math.floor(from / hzPerBin));
     return [a, Math.max(a + 1, Math.ceil(to / hzPerBin))] as const;
   });
+  // Bar positions from the center out, alternating sides: 5 bars -> 2, 1, 3, 0, 4
+  const c = (count - 1) / 2;
+  const order = Array.from({ length: count }, (_, i) => i).sort((x, y) => Math.abs(x - c) - Math.abs(y - c) || x - y);
+  const byBar: (readonly [number, number])[] = Array(count);
+  order.forEach((bar, k) => (byBar[bar] = bands[k]));
+  return byBar;
 }
 
 /** Middle bars reach higher than the outer ones, like the phone's wave */
 const profile = (i: number, bars: number) => {
   const c = (bars - 1) / 2;
-  return c ? 0.62 + 0.38 * (1 - Math.abs(i - c) / c) : 1;
+  return c ? 0.7 + 0.3 * (1 - Math.abs(i - c) / c) : 1;
 };
 
 /**
- * Bars that pump with the bass of what's playing right now: one bass envelope drives every bar (so
- * they move together on the kick), each bar tilted a little by its own slice of the bass. Read from the
- * analyser every frame, straight to the DOM (no React renders). Still and low when paused.
+ * Bars that move with what's playing right now: the kick in the middle, the voice either side, the
+ * cymbals at the edges. Each bar is drawn against its own band's recent range (an auto-gain), with a
+ * share of the whole song's loudness mixed in so the bars move together as one wave rather than
+ * jittering apart. Read from the analyser every frame, straight to the DOM (no React renders).
+ * Still and low when paused.
  */
 function Wave({ bars, playing, className = "" }: { bars: number; playing: boolean; className?: string }) {
   const refs = useRef<(HTMLSpanElement | null)[]>([]);
@@ -58,37 +70,33 @@ function Wave({ bars, playing, className = "" }: { bars: number; playing: boolea
     }
     const analyser = music.analyser;
     const data = new Uint8Array(analyser.frequencyBinCount);
-    const bands = bassBands(bars, analyser.context.sampleRate, analyser.frequencyBinCount);
-    const raw = new Float32Array(bars);
+    const bands = waveBands(bars, analyser.context.sampleRate, analyser.frequencyBinCount);
     const level = new Float32Array(bars);
-    // Recent loudest and quietest bass, drifting: bars are drawn between them (an auto-gain), so
-    // they pump on the kick of a loud master instead of sitting pinned at the top
-    let peak = 0.3;
-    let floor = 0.5;
+    const norm = new Float32Array(bars);
+    // Each band's recent loudest and quietest, drifting; bars are drawn between them
+    const peak = new Float32Array(bars).fill(0.3);
+    const floor = new Float32Array(bars).fill(0.5);
     let frame = 0;
     const tick = () => {
       frame = requestAnimationFrame(tick);
       if (document.hidden) return;
       analyser.getByteFrequencyData(data);
-      let total = 0;
+      let together = 0;
       bands.forEach(([a, b], i) => {
         let sum = 0;
         for (let k = a; k < b; k++) sum += data[k];
-        raw[i] = sum / (b - a) / 255;
-        total += raw[i];
+        const raw = sum / (b - a) / 255;
+        peak[i] = Math.max(raw, peak[i] * 0.994, 0.05);
+        floor[i] = Math.min(raw, floor[i] + (raw - floor[i]) * 0.01);
+        norm[i] = Math.min(1, Math.max(0, (raw - floor[i]) / Math.max(0.06, peak[i] - floor[i])));
+        together += norm[i];
       });
-      const bass = total / bars;
-      peak = Math.max(bass, peak * 0.995, 0.08);
-      floor = Math.min(bass, floor + (bass - floor) * 0.008);
-      const span = Math.max(0.06, peak - floor);
-      const n = Math.min(1, Math.max(0, (bass - floor) / span));
-      const loudest = Math.max(...raw, 0.01);
+      together /= bars;
       for (let i = 0; i < bars; i++) {
-        // One bass envelope for all bars; each slice only tilts its bar a little
-        const tilt = 0.82 + 0.18 * (raw[i] / loudest);
-        const target = 0.14 + 0.86 * n ** 2 * profile(i, bars) * tilt;
-        // Snaps up on the hit, eases back down between hits
-        level[i] += (target - level[i]) * (target > level[i] ? 0.65 : 0.18);
+        const n = 0.65 * norm[i] + 0.35 * together;
+        const target = 0.14 + 0.86 * n ** 1.6 * profile(i, bars);
+        // Snaps up on a hit or a syllable, eases back down
+        level[i] += (target - level[i]) * (target > level[i] ? 0.5 : 0.17);
         set(i, level[i]);
       }
     };

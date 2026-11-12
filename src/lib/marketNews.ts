@@ -26,7 +26,7 @@ const INITIAL: MarketNews = {
   pulse: [],
   stats: null,
   estimate: { tokensPerStory: 450, tokensPerBriefing: 1800, measured: false, batch: 5, batchMs: 9000, baseMs: 6500, briefMs: 7000 },
-  settings: { interval: 600, dryRun: false, storyCount: 20 },
+  settings: { interval: 600, dryRun: false, storyCount: 20, edition: { enabled: true, minute: 360 } },
   engine: { state: "offline", step: null, nextAt: null },
   intervals: [0, 120, 300, 600, 900, 1800, 3600],
   storyCounts: [10, 20, 30, 50],

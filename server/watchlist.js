@@ -1,3 +1,4 @@
+const { waitForActivity } = require("./activity");
 // The watchlist: stocks saved on the server and kept fresh while the site is open. Each update is
 // a full pass: a live quote and intraday price line, a fresh news search (the RAG) and a new Legend
 // analysis and score. Updates run one at a time, oldest first, so no stock waits longer than the
@@ -32,6 +33,7 @@ const DEFAULT_TIMING = { quote: 1200, news: 2500, legend: 7000 };
 
 let store = load();
 const clients = new Set();
+const waitForApp = () => waitForActivity(() => clients.size > 0 || schedule.background());
 const progress = new Progress(PHASES, store.timing);
 let engine = { state: "offline", symbol: null, nextAt: null, progress: null, queue: 0, reason: null };
 let running = false;
@@ -172,6 +174,7 @@ function connect(req, res) {
   req.on("close", () => {
     clearInterval(ping);
     clients.delete(res);
+    if (wakeUp) wakeUp();
   });
   poke();
 }
@@ -257,6 +260,7 @@ async function update(item) {
   setEngine("updating", symbol, null, progress.step("quote"));
   broadcast("item", publicItem(item));
   try {
+    await waitForApp();
     const state = marketState();
     const quote = await getQuote(symbol, state);
     setEngine("updating", symbol, null, progress.step("news"));
@@ -265,20 +269,23 @@ async function update(item) {
       fullName: quote.fullName,
       currentPrice: quote.currentPrice,
       lastClose: quote.lastClose,
+      sessionAt: quote.sessionAt,
       volume: quote.currentVolume,
       averageVolume: quote.averageVolume,
       float: quote.float,
     };
+    await waitForApp();
     const [news, spark] = await Promise.all([
       getNews(symbol, quote.fullName, { maxAgeMs: NEWS_MAX_AGE_MS }),
       getSparkline(symbol).catch(() => item.spark || []),
     ]);
     const stories = news.items.map(({ excerpt: _excerpt, ...story }) => story);
     setEngine("updating", symbol, null, progress.step("legend"));
+    await waitForApp();
     const analysis = store.settings.dryRun ? legend.example(stock, state, news.items) : await legend.analyze(stock, state, news.items);
     if (store.settings.dryRun) progress.hold(); // instant, so not a timing to learn from
     else progress.end();
-    if (!find(symbol)) return; // removed while updating
+    if (find(symbol) !== item) return; // removed, or the watchlist was reset, while updating
 
     const now = Date.now();
     const before = { legend: item.legend };
@@ -306,7 +313,7 @@ async function update(item) {
     console.error(`Watchlist ${symbol} update failed:`, err.message);
   } finally {
     current = null;
-    if (find(symbol)) {
+    if (find(symbol) === item) {
       save();
       broadcast("item", publicItem(item));
     }
@@ -379,6 +386,33 @@ function remove(rawSymbol) {
   return true;
 }
 
+/**
+ * Developer reset: every stock stays on the list, but its analysis, news, chart and score history
+ * are cleared, so each one is analyzed again from scratch (all are due at once).
+ */
+function reset() {
+  store.items = store.items.map((it) => ({
+    symbol: it.symbol,
+    name: it.name || it.symbol,
+    domain: it.domain || null,
+    addedAt: it.addedAt,
+    updatedAt: null,
+    updates: 0,
+    stock: null,
+    legend: null,
+    news: [],
+    spark: [],
+    prevScore: null,
+    history: [],
+    error: null,
+    failedAt: null,
+  }));
+  save();
+  broadcast("snapshot", snapshot());
+  poke();
+  return true;
+}
+
 /** Update a stock next, ahead of the schedule. */
 function refresh(rawSymbol) {
   const item = find(String(rawSymbol || "").toUpperCase());
@@ -421,4 +455,4 @@ function scheduleInfo() {
   return { interval: store.settings.interval, intervals: INTERVALS, count: store.items.length, limit: MAX_ITEMS, engine, estimate: estimate() };
 }
 
-module.exports = { connect, snapshot, add, remove, refresh, updateSettings, setScanCheck, poke, scheduleInfo, DEFAULT_INTERVAL };
+module.exports = { connect, snapshot, add, remove, refresh, reset, updateSettings, setScanCheck, poke, scheduleInfo, DEFAULT_INTERVAL };

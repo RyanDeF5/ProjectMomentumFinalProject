@@ -1,0 +1,832 @@
+/* ---------- Newsflash: a pop-up over the home screen, like the game's event pop-ups ----------
+   A framed panel (the home screen dimmed behind it) styled after the event banner: the photo washed
+   crimson-to-navy, timer tags, a big light title (Introducing SLIPSTREAM MODE), the featured rewards
+   (here the stocks in play), and event cards with the selected one outlined in white and a lime bar
+   beneath it. Tapping a card shows that story's short read in the top half. The pink close tab is the
+   game's dialog close.
+
+   It sizes with the window: --u is one "design pixel" of the 920-wide layout, set from the window
+   (78% of its width, kept short enough to fit its height), so everything inside scales together. */
+
+.nflash {
+  --u: max(0.82px, calc(min(78vw, 124dvh, 2000px) / 920));
+  position: fixed;
+  inset: 0;
+  z-index: 95;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+}
+.nflash__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(5, 8, 22, 0.66);
+}
+
+.nflash__panel {
+  position: relative;
+  width: min(calc(920 * var(--u)), 100%);
+  max-height: calc(100dvh - 32px);
+  overflow: hidden auto;
+  overscroll-behavior: contain;
+  background: var(--a9-menu);
+  border-top: calc(3 * var(--u)) solid #e8e9f4;
+  box-shadow: 0 calc(24 * var(--u)) calc(70 * var(--u)) rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-size: calc(16 * var(--u));
+}
+/* Icons scale with the text they sit in */
+.nflash__panel svg {
+  flex: none;
+  width: 1.05em;
+  height: 1.05em;
+}
+
+.nflash__bg {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.nflash__bg img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: grayscale(1) contrast(1.1) brightness(0.8);
+}
+/* The game's crimson-to-navy wash over the scenery */
+.nflash__bg::before,
+.nflash__bg::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+.nflash__bg::before {
+  background: linear-gradient(180deg, #c3004d 0%, #8a0a4a 28%, #2a1450 55%, #141a44 100%);
+  mix-blend-mode: multiply;
+}
+.nflash__bg::after {
+  background:
+    radial-gradient(ellipse 70% 55% at 30% 20%, rgba(255, 0, 84, 0.25), transparent 70%),
+    linear-gradient(180deg, rgba(10, 8, 30, 0.1) 0%, rgba(14, 18, 52, 0.55) 45%, rgba(12, 18, 46, 0.96) 70%);
+}
+.nflash__head,
+.nflash__stage,
+.nflash__cards,
+.nflash__foot {
+  position: relative;
+}
+
+/* ---------- Head: timer and mood tags, the story count, the pink close tab ---------- */
+.nflash__head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: calc(4 * var(--u));
+  min-height: calc(56 * var(--u));
+  padding: 0 0 0 calc(22 * var(--u));
+}
+.nflash__count {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(7 * var(--u));
+  margin-left: auto;
+  margin-right: calc(10 * var(--u));
+  padding: calc(4 * var(--u)) calc(12 * var(--u)) calc(4 * var(--u)) calc(9 * var(--u));
+  background: rgba(5, 8, 20, 0.8);
+  font-size: calc(15 * var(--u));
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.nflash__count b {
+  color: var(--a9-lime);
+  font-size: calc(18 * var(--u));
+}
+/* The dialog's pink close tab with its dark diagonal edge */
+.nflash__close {
+  align-self: stretch;
+  width: calc(104 * var(--u));
+  min-height: calc(56 * var(--u));
+  flex: none;
+  display: grid;
+  place-items: center;
+  padding-left: calc(30 * var(--u));
+  border: 0;
+  background: linear-gradient(118deg, #a70036 0 34%, #ff0054 34.5%);
+  color: #fff;
+  clip-path: polygon(34% 0, 100% 0, 100% 100%, 0 100%);
+  cursor: inherit;
+}
+.nflash__close svg {
+  width: calc(26 * var(--u));
+  height: calc(26 * var(--u));
+}
+.nflash__close:hover {
+  background: linear-gradient(118deg, #b8003c 0 34%, #ff2a70 34.5%);
+}
+
+.nflash__tag {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(5 * var(--u));
+  height: calc(22 * var(--u));
+  padding: 0 calc(7 * var(--u));
+  font-size: calc(14 * var(--u));
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  white-space: nowrap;
+}
+.nflash__tag.is-lg {
+  height: calc(30 * var(--u));
+  padding: 0 calc(10 * var(--u));
+  font-size: calc(17 * var(--u));
+  gap: calc(7 * var(--u));
+}
+.nflash__tag.is-pink {
+  background: #e8175d;
+  color: #fff;
+}
+.nflash__tag.is-dark {
+  background: #0d1a33;
+  color: #fff;
+}
+
+/* ---------- The stage: the overview, or the open story. One height, so the cards stay put ---------- */
+.nflash__stage {
+  min-height: calc(262 * var(--u));
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+
+/* Overview: title and Legend's read, the stocks in play beside them */
+.nflash__body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: calc(18 * var(--u)) calc(28 * var(--u));
+  padding: calc(14 * var(--u)) calc(22 * var(--u)) calc(4 * var(--u));
+}
+.nflash__hero {
+  min-width: 0;
+}
+.nflash__title {
+  margin: 0 0 calc(14 * var(--u));
+  font-size: calc(36 * var(--u));
+  font-weight: 500;
+  line-height: 1.05;
+  letter-spacing: 0.01em;
+  text-wrap: balance;
+  text-shadow: 0 calc(2 * var(--u)) calc(18 * var(--u)) rgba(0, 0, 0, 0.35);
+}
+.nflash__summary {
+  margin: 0;
+  max-width: calc(620 * var(--u));
+  font-size: calc(17 * var(--u));
+  font-weight: 500;
+  line-height: 1.3;
+  text-shadow: 0 calc(1 * var(--u)) calc(8 * var(--u)) rgba(0, 0, 0, 0.4);
+}
+.nflash__summary b {
+  margin-right: calc(4 * var(--u));
+  font-weight: 700;
+  color: var(--a9-lime);
+}
+.nflash__hint {
+  display: block;
+  margin-top: calc(10 * var(--u));
+  font-size: calc(12 * var(--u));
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--a9-dim);
+}
+
+.nflash__featured {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: calc(10 * var(--u));
+}
+.nflash__featured-label {
+  position: relative;
+  isolation: isolate;
+  padding: calc(2 * var(--u)) calc(4 * var(--u)) calc(2 * var(--u)) 0;
+  font-size: calc(16 * var(--u));
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+/* The pink tab the game's FEATURED REWARDS label sits on */
+.nflash__featured-label::after {
+  content: "";
+  position: absolute;
+  right: calc(-8 * var(--u));
+  top: 0;
+  bottom: 0;
+  width: calc(30 * var(--u));
+  background: #e8175d;
+  z-index: -1;
+}
+.nflash__stocks {
+  display: flex;
+  gap: calc(8 * var(--u));
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.nflash__stock {
+  position: relative;
+  width: calc(100 * var(--u));
+  min-height: calc(112 * var(--u));
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: calc(1 * var(--u));
+  padding: calc(22 * var(--u)) calc(8 * var(--u)) calc(7 * var(--u));
+  background: linear-gradient(160deg, rgba(25, 52, 104, 0.95), rgba(9, 20, 46, 0.95));
+  box-shadow: inset 0 0 0 calc(1 * var(--u)) rgba(52, 236, 250, 0.35);
+}
+/* The import-part card: gold, with a white keyline */
+.nflash__stock.is-top {
+  background: linear-gradient(160deg, #ffc21a 0%, #f7a10b 45%, #ec6a00 100%);
+  box-shadow: inset 0 0 0 calc(2 * var(--u)) rgba(255, 255, 255, 0.85);
+}
+.nflash__stock-tag {
+  position: absolute;
+  top: 0;
+  right: 0;
+  padding: calc(2 * var(--u)) calc(5 * var(--u));
+  background: rgba(5, 8, 20, 0.85);
+  font-size: calc(10 * var(--u));
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.nflash__stock-symbol {
+  font-size: calc(24 * var(--u));
+  font-weight: 700;
+  line-height: 1;
+}
+.nflash__stock-change {
+  font-size: calc(15 * var(--u));
+  font-weight: 700;
+}
+.nflash__stock.is-up .nflash__stock-change {
+  color: var(--a9-lime);
+}
+.nflash__stock.is-down .nflash__stock-change {
+  color: #ff4f86;
+}
+.nflash__stock.is-top .nflash__stock-change {
+  color: #fff;
+}
+.nflash__stock-name {
+  overflow: hidden;
+  font-size: calc(12 * var(--u));
+  font-weight: 600;
+  line-height: 1.1;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  opacity: 0.9;
+}
+
+/* ---------- The open story: its photo beside Legend's short read ---------- */
+.nflash__detail {
+  display: grid;
+  grid-template-columns: calc(300 * var(--u)) minmax(0, 1fr);
+  gap: calc(20 * var(--u));
+  margin: calc(8 * var(--u)) calc(22 * var(--u)) 0;
+  animation: nflash-detail 280ms var(--ease-out) both;
+}
+@keyframes nflash-detail {
+  from {
+    opacity: 0;
+    transform: translateX(calc(24 * var(--u)));
+  }
+}
+.nflash__detail-media {
+  position: relative;
+  min-height: calc(240 * var(--u));
+  overflow: hidden;
+  background:
+    repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.07) 0 calc(2 * var(--u)), transparent calc(2 * var(--u)) calc(16 * var(--u))),
+    linear-gradient(160deg, #2276e0, #0b2a66);
+  box-shadow: inset 0 0 0 calc(3 * var(--u)) #fff;
+}
+.nflash__detail.is-bullish .nflash__detail-media {
+  background:
+    repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.18) 0 calc(2 * var(--u)), transparent calc(2 * var(--u)) calc(16 * var(--u))),
+    linear-gradient(160deg, #d4ff3a, #a6e000);
+}
+.nflash__detail.is-bearish .nflash__detail-media {
+  background:
+    repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.08) 0 calc(2 * var(--u)), transparent calc(2 * var(--u)) calc(16 * var(--u))),
+    linear-gradient(160deg, #ff3b78, #a8003a);
+}
+.nflash__detail.is-mixed .nflash__detail-media {
+  background:
+    repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.1) 0 calc(2 * var(--u)), transparent calc(2 * var(--u)) calc(16 * var(--u))),
+    linear-gradient(160deg, #ffb31a, #e2600b);
+}
+.nflash__detail-media img {
+  position: absolute;
+  inset: calc(3 * var(--u));
+  width: calc(100% - calc(6 * var(--u)));
+  height: calc(100% - calc(6 * var(--u)));
+  object-fit: cover;
+}
+.nflash__detail-tags {
+  position: absolute;
+  top: calc(10 * var(--u));
+  left: calc(10 * var(--u));
+  display: flex;
+  gap: calc(4 * var(--u));
+}
+.nflash__detail-index {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  padding: calc(4 * var(--u)) calc(10 * var(--u)) calc(3 * var(--u));
+  background: rgba(5, 8, 20, 0.88);
+  font-size: calc(14 * var(--u));
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.nflash__detail-index b {
+  color: var(--a9-lime);
+  font-size: calc(17 * var(--u));
+}
+.nflash__detail-body {
+  display: flex;
+  flex-direction: column;
+  gap: calc(6 * var(--u));
+  min-width: 0;
+}
+.nflash__detail-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: calc(4 * var(--u)) calc(10 * var(--u));
+}
+.nflash__detail-kicker {
+  font-size: calc(12 * var(--u));
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--a9-dim);
+}
+.nflash__detail-when {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(6 * var(--u));
+  align-self: flex-start;
+  padding: calc(3 * var(--u)) calc(8 * var(--u)) calc(2 * var(--u)) calc(6 * var(--u));
+  background: #e8175d;
+  font-size: calc(13 * var(--u));
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+.nflash__detail-title {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  margin: calc(2 * var(--u)) 0 0;
+  font-size: calc(24 * var(--u));
+  font-weight: 700;
+  line-height: 1.12;
+  text-wrap: balance;
+}
+.nflash__detail-summary {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  overflow: hidden;
+  margin: 0;
+  font-size: calc(15 * var(--u));
+  font-weight: 500;
+  line-height: 1.32;
+}
+.nflash__detail-summary b {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(4 * var(--u));
+  margin-right: calc(2 * var(--u));
+  color: var(--a9-lime);
+  font-weight: 700;
+}
+.nflash__detail-points {
+  display: grid;
+  gap: calc(3 * var(--u));
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: calc(14 * var(--u));
+  line-height: 1.3;
+  color: #dfe8f5;
+}
+.nflash__detail-points li {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  position: relative;
+  padding-left: calc(16 * var(--u));
+}
+.nflash__detail-points li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.45em;
+  width: calc(7 * var(--u));
+  height: calc(7 * var(--u));
+  background: var(--a9-lime);
+  transform: skewX(-12deg);
+}
+.nflash__detail-reading {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(8 * var(--u));
+  font-size: calc(12 * var(--u));
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--a9-dim);
+}
+.nflash__detail-stocks {
+  position: absolute;
+  left: calc(10 * var(--u));
+  bottom: calc(10 * var(--u));
+  right: calc(64 * var(--u));
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(5 * var(--u));
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.nflash__detail-stocks li {
+  display: inline-flex;
+  align-items: baseline;
+  gap: calc(6 * var(--u));
+  padding: calc(4 * var(--u)) calc(9 * var(--u)) calc(3 * var(--u));
+  background: rgba(5, 10, 26, 0.85);
+  box-shadow: inset 0 0 0 calc(1 * var(--u)) rgba(52, 236, 250, 0.35);
+  font-size: calc(14 * var(--u));
+  font-weight: 700;
+}
+.nflash__detail-stocks li {
+  background: rgba(5, 10, 26, 0.9);
+}
+.nflash__detail-stocks b {
+  font-size: calc(16 * var(--u));
+}
+.nflash__detail-stocks li.is-up {
+  color: var(--a9-lime);
+}
+.nflash__detail-stocks li.is-down {
+  color: #ff4f86;
+}
+.nflash__detail-stocks li b {
+  color: #fff;
+}
+.nflash__detail-nav {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: calc(8 * var(--u));
+  margin-top: auto;
+  padding-top: calc(6 * var(--u));
+}
+.nflash__nav-btn,
+.nflash__nav-arrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: calc(4 * var(--u));
+  min-height: calc(38 * var(--u));
+  border: 0;
+  background: rgba(5, 10, 26, 0.85);
+  color: #fff;
+  font: inherit;
+  font-size: calc(15 * var(--u));
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  cursor: inherit;
+}
+.nflash__nav-btn {
+  padding: 0 calc(12 * var(--u)) 0 calc(8 * var(--u));
+}
+.nflash__nav-arrow {
+  width: calc(42 * var(--u));
+  background: #fff;
+  color: var(--a9-dark);
+}
+.nflash__nav-btn:hover,
+.nflash__nav-arrow:hover:not(:disabled) {
+  filter: brightness(1.15);
+}
+.nflash__nav-arrow:disabled {
+  opacity: 0.3;
+}
+.nflash__nav-steps {
+  display: inline-flex;
+  gap: calc(4 * var(--u));
+}
+.nflash__nav-arrow .is-flip {
+  display: inline-flex;
+  transform: scaleX(-1);
+}
+.nflash__full.a9-btn {
+  margin-left: auto;
+  min-height: calc(38 * var(--u));
+  padding: 0 calc(18 * var(--u));
+  font-size: calc(16 * var(--u));
+}
+
+/* ---------- Event cards: the stories ---------- */
+.nflash__cards {
+  display: flex;
+  gap: calc(12 * var(--u));
+  margin: 0;
+  /* Room above for the "!" badges, below for the selection bar */
+  padding: calc(22 * var(--u)) calc(22 * var(--u)) calc(18 * var(--u));
+  list-style: none;
+  overflow-x: auto;
+  scroll-snap-type: x proximity;
+  scroll-padding-inline: calc(22 * var(--u));
+  scrollbar-width: thin;
+}
+.nflash__card {
+  position: relative;
+  flex: 0 0 auto;
+  width: calc(164 * var(--u));
+  scroll-snap-align: start;
+  animation: nflash-card 480ms var(--ease-out) both;
+  animation-delay: calc(220ms + var(--card-i, 0) * 60ms);
+}
+@keyframes nflash-card {
+  from {
+    opacity: 0;
+    transform: translateY(calc(20 * var(--u)));
+  }
+}
+.nflash__card-face {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  width: 100%;
+  height: calc(196 * var(--u));
+  padding: calc(7 * var(--u)) calc(7 * var(--u)) calc(10 * var(--u));
+  overflow: hidden;
+  border: 0;
+  outline: calc(3 * var(--u)) solid transparent;
+  outline-offset: calc(-3 * var(--u));
+  color: #fff;
+  text-align: left;
+  cursor: inherit;
+  transition:
+    outline-color 120ms ease,
+    transform 120ms ease;
+}
+.nflash__card-face:hover {
+  transform: translateY(calc(-3 * var(--u)));
+}
+.nflash__card:not(.is-selected) .nflash__card-face:hover {
+  outline-color: rgba(255, 255, 255, 0.45);
+}
+.nflash__card.is-selected .nflash__card-face {
+  outline-color: #fff;
+}
+/* The lime bar under the selected card */
+.nflash__card.is-selected::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(-12 * var(--u));
+  height: calc(6 * var(--u));
+  background: var(--a9-lime);
+}
+
+/* No photo: the game's colored event cards, by Legend's sentiment */
+.nflash__card-face {
+  background:
+    repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.07) 0 calc(2 * var(--u)), transparent calc(2 * var(--u)) calc(16 * var(--u))),
+    linear-gradient(160deg, #2276e0, #0b2a66);
+}
+.nflash__card.is-bullish .nflash__card-face {
+  background:
+    repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.18) 0 calc(2 * var(--u)), transparent calc(2 * var(--u)) calc(16 * var(--u))),
+    linear-gradient(160deg, #d4ff3a, #a6e000);
+  color: var(--a9-dark);
+}
+.nflash__card.is-bearish .nflash__card-face {
+  background:
+    repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.08) 0 calc(2 * var(--u)), transparent calc(2 * var(--u)) calc(16 * var(--u))),
+    linear-gradient(160deg, #ff3b78, #a8003a);
+}
+.nflash__card.is-mixed .nflash__card-face {
+  background:
+    repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.1) 0 calc(2 * var(--u)), transparent calc(2 * var(--u)) calc(16 * var(--u))),
+    linear-gradient(160deg, #ffb31a, #e2600b);
+}
+/* With the article's photo: the photo, darkened toward the headline */
+.nflash__card.has-image .nflash__card-face {
+  background: #0b1630;
+  color: #fff;
+}
+.nflash__card-image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.nflash__card.has-image .nflash__card-face::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: linear-gradient(180deg, rgba(5, 10, 26, 0.2) 0%, rgba(5, 10, 26, 0.5) 34%, rgba(5, 10, 26, 0.94) 62%);
+}
+/* A strip of the sentiment's color along the bottom of photo cards */
+.nflash__card.has-image .nflash__card-face::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1;
+  height: calc(4 * var(--u));
+  background: #2276e0;
+}
+.nflash__card.has-image.is-bullish .nflash__card-face::after {
+  background: var(--a9-lime);
+}
+.nflash__card.has-image.is-bearish .nflash__card-face::after {
+  background: var(--a9-pink);
+}
+.nflash__card.has-image.is-mixed .nflash__card-face::after {
+  background: #ffb31a;
+}
+
+.nflash__card-tags,
+.nflash__card-text {
+  position: relative;
+  z-index: 2;
+}
+.nflash__card-tags {
+  display: flex;
+  gap: calc(3 * var(--u));
+}
+.nflash__card-text {
+  display: flex;
+  flex-direction: column;
+  gap: calc(3 * var(--u));
+}
+.nflash__card-kicker {
+  font-size: calc(11 * var(--u));
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  opacity: 0.85;
+}
+.nflash__card-title {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 5;
+  overflow: hidden;
+  font-size: calc(15 * var(--u));
+  font-weight: 700;
+  line-height: 1.12;
+}
+
+/* The game's lime "!" for something new, standing above the card's corner */
+.nflash__new {
+  position: absolute;
+  top: calc(-11 * var(--u));
+  right: calc(8 * var(--u));
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: calc(22 * var(--u));
+  height: calc(26 * var(--u));
+  background: var(--a9-lime);
+  color: var(--a9-dark);
+  font-size: calc(18 * var(--u));
+  font-weight: 700;
+  line-height: 1;
+  pointer-events: none;
+}
+
+/* ---------- Foot ---------- */
+.nflash__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: calc(16 * var(--u));
+  padding: calc(6 * var(--u)) calc(22 * var(--u)) calc(18 * var(--u));
+}
+.nflash__note {
+  font-size: calc(12 * var(--u));
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  color: var(--a9-dim);
+}
+.nflash__continue.a9-btn {
+  min-width: calc(200 * var(--u));
+  min-height: calc(48 * var(--u));
+  padding: 0 calc(28 * var(--u));
+  font-size: calc(20 * var(--u));
+}
+
+/* ---------- Narrow windows: a fixed size, the stocks under the title, the photo over the story ---------- */
+@media (max-width: 760px) {
+  .nflash {
+    --u: 1px;
+  }
+  .nflash__body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .nflash__featured {
+    align-items: flex-start;
+  }
+  .nflash__detail {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .nflash__detail-media {
+    min-height: 150px;
+  }
+}
+@media (max-width: 560px) {
+  .nflash {
+    padding: 10px;
+  }
+  .nflash__panel {
+    max-height: calc(100dvh - 20px);
+  }
+  .nflash__head {
+    padding-left: 14px;
+  }
+  .nflash__head {
+    flex-wrap: nowrap;
+  }
+  .nflash__count,
+  .nflash__head .nflash__tag.is-dark {
+    display: none;
+  }
+  .nflash__head .nflash__tag.is-pink {
+    min-width: 0;
+    overflow: hidden;
+    font-size: 15px;
+  }
+  .nflash__close {
+    margin-left: auto;
+    width: 84px;
+    padding-left: 24px;
+  }
+  .nflash__body,
+  .nflash__foot {
+    padding-inline: 14px;
+  }
+  .nflash__detail {
+    margin-inline: 14px;
+  }
+  .nflash__cards {
+    padding-inline: 14px;
+    scroll-padding-inline: 14px;
+  }
+  .nflash__title {
+    font-size: 28px;
+  }
+  .nflash__summary {
+    font-size: 16px;
+  }
+  .nflash__stocks {
+    width: 100%;
+  }
+  .nflash__stock {
+    flex: 1 1 0;
+    min-width: 0;
+    width: auto;
+  }
+  .nflash__full.a9-btn {
+    margin-left: 0;
+  }
+  .nflash__foot {
+    flex-direction: column-reverse;
+    align-items: stretch;
+    text-align: center;
+  }
+  .nflash__continue.a9-btn {
+    min-width: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nflash__card,
+  .nflash__detail {
+    animation: none;
+  }
+  .nflash__card-face:hover {
+    transform: none;
+  }
+}

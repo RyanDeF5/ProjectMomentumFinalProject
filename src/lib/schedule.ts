@@ -1,3 +1,4 @@
+import { isAppActive } from "./activity";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { HoursWindow, JobKey, JobSchedule, ScheduleSnapshot, SchedulePatch, SessionKey } from "./types";
 
@@ -128,15 +129,19 @@ export function jobCost(snap: ScheduleSnapshot, key: JobKey, dryRun: boolean, jo
     const s = info.screener;
     const count = Math.min(s.boardSize, s.movers ?? s.boardSize);
     interval = s.interval;
-    perUpdate = count * s.estimate.tokensPerGrade;
-    updateMs = s.estimate.baseMs + count * s.estimate.gradeMs;
+    // Measured whole updates when there are some (only new or changed stocks are graded), else a
+    // first guess of every stock graded
+    perUpdate = s.estimate.tokensPerUpdate ?? count * s.estimate.tokensPerGrade;
+    updateMs = s.estimate.updateMs ?? s.estimate.baseMs + count * s.estimate.gradeMs;
     cycleMs = interval * 1000 + updateMs;
   } else if (key === "news") {
     const n = info.news;
     const calls = Math.ceil(n.storyCount / Math.max(1, n.estimate.batch));
     interval = n.interval;
-    perUpdate = n.storyCount * n.estimate.tokensPerStory + n.estimate.tokensPerBriefing;
-    updateMs = n.estimate.baseMs + calls * n.estimate.batchMs + n.estimate.briefMs;
+    // Measured whole updates when there are some (only new stories are read and briefed), else a
+    // first guess of every story read
+    perUpdate = n.estimate.tokensPerUpdate ?? n.storyCount * n.estimate.tokensPerStory + n.estimate.tokensPerBriefing;
+    updateMs = n.estimate.updateMs ?? n.estimate.baseMs + calls * n.estimate.batchMs + n.estimate.briefMs;
     cycleMs = interval * 1000 + updateMs;
   } else {
     const w = info.watchlist;
@@ -266,7 +271,7 @@ export function useSchedule(active: boolean) {
   const pending = useRef(0);
 
   const load = useCallback(() => {
-    if (pending.current) return;
+    if (pending.current || !isAppActive()) return;
     request("/schedule")
       .then((next) => {
         if (!pending.current) setSnap(next);
@@ -279,7 +284,13 @@ export function useSchedule(active: boolean) {
     if (!active) return;
     load();
     const timer = setInterval(load, REFRESH_MS);
-    return () => clearInterval(timer);
+    window.addEventListener("focus", load);
+    document.addEventListener("visibilitychange", load);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("focus", load);
+      document.removeEventListener("visibilitychange", load);
+    };
   }, [active, load]);
 
   const apply = useCallback((patch: SchedulePatch) => {

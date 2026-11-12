@@ -7,6 +7,10 @@ import { NewsStrip, type NewsState } from "../components/NewsStrip";
 import { RankBlock } from "../components/RankBlock";
 import { StatRow } from "../components/StatRow";
 import { WatchControl } from "../components/WatchControl";
+import { StaleBanner } from "../components/Freshness";
+import { freshness, whenLabel } from "../lib/freshness";
+import { useNow } from "../lib/watchlist";
+import { lastTradingDay, moveDayLabel } from "../lib/clock";
 import { compactFormatter } from "../lib/numbers";
 import type { StockData } from "../lib/types";
 import { useCountUp } from "../lib/useCountUp";
@@ -25,11 +29,14 @@ interface SummaryPageProps {
   legend: LegendState;
   news: NewsState;
   onBack: () => void;
+  /** Scan this stock again for live numbers (offered when the data is stale); absent during a scan */
+  onRescan?: () => void;
   /** The add-to-watchlist block */
   watch: ComponentProps<typeof WatchControl>;
 }
 
-export function SummaryPage({ screenRef, active, stock, summaryRun, legend, news, onBack, watch }: SummaryPageProps) {
+export function SummaryPage({ screenRef, active, stock, summaryRun, legend, news, onBack, onRescan, watch }: SummaryPageProps) {
+  const now = useNow(30_000, active);
   const hasStock = summaryRun > 0;
   const [showBreakdown, setShowBreakdown] = useState(false);
   // Counters and the rank reveal restart each time the screen is shown
@@ -37,13 +44,16 @@ export function SummaryPage({ screenRef, active, stock, summaryRun, legend, news
   const rvol = hasStock ? stock.volume / stock.averageVolume : 0;
   const percentChange = hasStock ? ((stock.currentPrice - stock.lastClose) / stock.lastClose) * 100 : 0;
   const up = !hasStock || percentChange > 0;
+  // A weekend (or overnight) look shows the last session's move: "% UP ON FRIDAY", not "TODAY"
+  // Older saved data has no session time: then the trading day the data was pulled on
+  const moveDay = moveDayLabel(stock.sessionAt ?? (stock.asOf ? lastTradingDay(new Date(stock.asOf)).getTime() : null));
   const price = useCountUp(stock.currentPrice, { token: revealKey, delay: 300, duration: 1000 });
 
   // Bar scales match the original: 100% gain, 8x RVOL, $30, 20M volume and 20M float fill a bar
   const stats = [
     {
       icon: "/images/icons/PercentUpIcon2.png",
-      label: up ? "% UP TODAY" : "% DOWN TODAY",
+      label: `${up ? "% UP" : "% DOWN"} ${moveDay}`,
       value: percentChange,
       format: (v: number) => `${v.toFixed(1)}%`,
       fill: percentChange / 100,
@@ -81,6 +91,16 @@ export function SummaryPage({ screenRef, active, stock, summaryRun, legend, news
           <SectionTitle as="h1" size="lg">
             STOCK SUMMARY
           </SectionTitle>
+          {hasStock && (
+            <StaleBanner
+              at={stock.asOf}
+              now={now}
+              kind="stock"
+              risk="THE PRICE, VOLUME AND LEGEND'S SCORE MAY HAVE MOVED SINCE"
+              updateLabel="SCAN AGAIN"
+              onUpdate={onRescan}
+            />
+          )}
         </div>
 
         <div className="summary__left">
@@ -109,7 +129,12 @@ export function SummaryPage({ screenRef, active, stock, summaryRun, legend, news
           {hasStock && (
             <Reveal kind="panel" wash={up ? "lime" : "pink"} className={`price-hud__change${up ? " is-up" : " is-down"}`}>
               <span aria-hidden>{up ? "▲" : "▼"}</span>
-              <span className="skew">{Number.isFinite(percentChange) ? `${percentChange.toFixed(1)}%` : "N/A"} TODAY</span>
+              <span className="skew">{Number.isFinite(percentChange) ? `${percentChange.toFixed(1)}%` : "N/A"} {moveDay}</span>
+            </Reveal>
+          )}
+          {hasStock && stock.asOf && (
+            <Reveal kind="fade" className={`price-hud__asof is-${freshness(stock.asOf, now, "stock")}`} title={new Date(stock.asOf).toLocaleString()}>
+              DATA FROM {whenLabel(stock.asOf, now)}
             </Reveal>
           )}
         </div>

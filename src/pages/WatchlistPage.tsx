@@ -2,7 +2,10 @@ import { useRef, useState, type Ref } from "react";
 import { createPortal } from "react-dom";
 import { shake } from "../animation/a9";
 import { sfx } from "../audio/sfx";
+import { DevResetButton } from "../components/DevResetButton";
 import { WatchCard } from "../components/WatchCard";
+import { AgeChip, StaleBanner } from "../components/Freshness";
+import { FRESHNESS_LIMITS, ageWords, freshness, isStale, stampLabel } from "../lib/freshness";
 import type { WatchItem } from "../lib/types";
 import {
   CLASS_ORDER,
@@ -71,6 +74,8 @@ export function WatchlistPage({
   const [adding, setAdding] = useState(false);
   const [addError, setAddError] = useState("");
   const [removing, setRemoving] = useState<WatchItem | null>(null);
+  // Stocks sent for an update from the warning, so it says UPDATING until they land
+  const [queued, setQueued] = useState<Set<string>>(() => new Set());
   const inputRef = useRef<HTMLInputElement>(null);
 
   const { items, engine, limit, connected, clockOffset } = watchlist;
@@ -103,6 +108,17 @@ export function WatchlistPage({
   else if (engine.nextAt && engine.symbol) status = `NEXT: ${engine.symbol} ${countdown(engine.nextAt - serverNow)}`;
   else status = items.length ? "UP TO DATE" : "READY";
   const updating = connected && engine.state === "updating";
+
+  // How far behind the list is: its oldest stock, and every stock overdue for an update
+  const dated = items.filter((item) => item.updatedAt);
+  const oldest = dated.reduce<WatchItem | null>((a, b) => (!a || (b.updatedAt ?? 0) < (a.updatedAt ?? 0) ? b : a), null);
+  const behind = dated.filter((item) => isStale(freshness(item.updatedAt, serverNow, "stock")));
+  const catchingUp = behind.some((item) => item.updating || queued.has(item.symbol));
+  const staleHours = FRESHNESS_LIMITS.stock.stale / 3_600_000;
+  const behindLine =
+    oldest?.updatedAt && behind.length
+      ? `${behind.length === items.length ? (items.length === 1 ? "THIS STOCK HASN'T" : `NONE OF YOUR ${items.length} STOCKS HAVE`) : `${behind.length} OF YOUR ${items.length} STOCKS HAVEN'T`} BEEN UPDATED IN OVER ${staleHours} HOURS (${oldest.symbol} SINCE ${stampLabel(oldest.updatedAt, serverNow)}, ${ageWords(oldest.updatedAt, serverNow)} AGO)`
+      : undefined;
 
   async function add() {
     const symbol = ticker.trim().toUpperCase();
@@ -165,6 +181,8 @@ export function WatchlistPage({
               <span aria-live="polite">{status}</span>
               <ArrowRightIcon size={14} />
             </Reveal>
+            <AgeChip at={oldest?.updatedAt} now={serverNow} kind="stock" label={items.length > 1 ? "OLDEST" : "UPDATED"} />
+            <DevResetButton path="/watchlist/reset" what="every stock's analysis, news and history (the stocks stay on the list)" />
           </div>
 
           <Reveal kind="fade" className="garage__filters">
@@ -250,6 +268,22 @@ export function WatchlistPage({
           </div>
         </Reveal>
 
+
+        {behind.length > 0 && (
+          <StaleBanner
+            at={oldest?.updatedAt}
+            now={serverNow}
+            kind="stock"
+            headline={behindLine}
+            busy={catchingUp}
+            risk="PRICES AND LEGEND'S SCORES MAY HAVE MOVED SINCE"
+            updateLabel={behind.length === 1 ? `UPDATE ${behind[0].symbol}` : `UPDATE ${behind.length} STOCKS`}
+            onUpdate={() => {
+              setQueued(new Set(behind.map((item) => item.symbol)));
+              behind.forEach((item) => void refreshWatchItem(item.symbol));
+            }}
+          />
+        )}
 
         <div className="garage__body">
           {groups.map((group) => (

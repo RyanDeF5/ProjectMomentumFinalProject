@@ -1,3 +1,4 @@
+import { isAppActive } from "./activity";
 import { useEffect, useState, useSyncExternalStore } from "react";
 
 // Same origin by default: the Express server serves both the site and the API
@@ -89,8 +90,8 @@ export function useConnection(streamsUp: boolean): Connection {
     async function check() {
       window.clearTimeout(timer);
       if (stopped) return;
-      // Hidden tabs don't need to know
-      if (document.visibilityState === "visible") {
+      // Inactive pages do not poll
+      if (isAppActive()) {
         const started = performance.now();
         try {
           const res = await fetch(`${API_URL}/health`, { cache: "no-store", signal: AbortSignal.timeout(TIMEOUT_MS) });
@@ -108,16 +109,18 @@ export function useConnection(streamsUp: boolean): Connection {
     }
 
     const recheck = () => {
-      if (document.visibilityState === "visible") void check();
+      if (isAppActive()) void check();
     };
     void check();
     document.addEventListener("visibilitychange", recheck);
     window.addEventListener("online", recheck);
+    window.addEventListener("focus", recheck);
     return () => {
       stopped = true;
       window.clearTimeout(timer);
       document.removeEventListener("visibilitychange", recheck);
       window.removeEventListener("online", recheck);
+      window.removeEventListener("focus", recheck);
     };
   }, []);
 

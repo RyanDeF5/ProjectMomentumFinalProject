@@ -196,7 +196,22 @@ function buildMetrics(stock, marketState) {
     floatShares: Number.isFinite(float) && float > 0 ? float : 0,
     floatTurnoverPercent: Number.isFinite(float) && float > 0 ? round((volume / float) * 100, 1) : null,
     dollarVolume: round(price * volume, 0),
+    ...moveDay(stock.sessionAt),
   };
+}
+
+/**
+ * Which trading day the change is from, when it isn't today (a weekend or overnight scan shows the
+ * last session's move), so Legend doesn't call Friday's move "today's".
+ */
+function moveDay(sessionAt) {
+  const at = sessionAt ? new Date(sessionAt) : null;
+  if (!at || !Number.isFinite(at.getTime())) return {};
+  const startOf = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const days = Math.round((startOf(new Date()) - startOf(at)) / 86_400_000);
+  if (days <= 0) return {};
+  const day = at.toLocaleString("en-US", { weekday: "long", month: "short", day: "numeric" });
+  return { changeIsFrom: `the last session, ${day} (${days === 1 ? "yesterday" : `${days} days ago`}); call it ${at.toLocaleString("en-US", { weekday: "long" })}'s move, not today's` };
 }
 
 function ageLabel(hours) {
@@ -612,6 +627,60 @@ function exampleBriefing() {
   };
 }
 
+// ---------- Newsflash ----------
+// The first time a trader opens the app each day, Legend greets them with what happened in the
+// news while they were away, like the game's event banner
+
+const FLASH_PROMPT = `You are LEGEND, the news desk inside Alpha 9: Legends. A trader is opening the app for the
+first time today. From the biggest stories since they were last on, write the NEWSFLASH that greets them.
+title: the one big thing that happened, at most 7 words, plain and punchy, no trailing period.
+summary: what happened while they were away and what it means for traders now, at most 45 words.
+picks: the story numbers in the order to show them, most important first (all of them, or the ones that matter).
+Use only the stories given. No hype words; no disclaimers.`;
+
+const FLASH_SCHEMA = {
+  type: "object",
+  properties: {
+    title: { type: "string" },
+    summary: { type: "string" },
+    picks: { type: "array", items: { type: "integer" }, maxItems: 8 },
+  },
+  required: ["title", "summary", "picks"],
+  additionalProperties: false,
+};
+
+function flashFrom(raw, count) {
+  const picks = [];
+  for (const n of Array.isArray(raw?.picks) ? raw.picks : []) {
+    const i = Number(n) - 1;
+    if (Number.isInteger(i) && i >= 0 && i < count && !picks.includes(i)) picks.push(i);
+  }
+  // Any story the model left out still shows, after its picks
+  for (let i = 0; i < count; i++) if (!picks.includes(i)) picks.push(i);
+  return { title: text(raw?.title).replace(/\.$/, ""), summary: text(raw?.summary), picks };
+}
+
+/** The day's newsflash from the biggest stories since the trader was last on. */
+async function writeNewsflash(stories, away, marketState) {
+  const model = await resolveModel();
+  const lines = stories
+    .map((s, i) => {
+      const t = s.tickers.map((x) => `${x.symbol}${Number.isFinite(x.change) ? ` ${x.change >= 0 ? "+" : ""}${x.change.toFixed(1)}%` : ""}`).join(", ");
+      return `[${i + 1}] ${s.title} (${s.publisher}${s.coverage > 1 ? ` + ${s.coverage - 1} more outlets` : ""}, ${ageLabel(s.ageHours)}) impact=${s.ai.impact} sentiment=${s.ai.sentiment}${t ? ` tickers: ${t}` : ""}\n    ${s.ai.why}`;
+    })
+    .join("\n");
+  const user = `MARKET SESSION NOW: ${marketState}\nTHE TRADER WAS LAST ON: ${away}\n\nBIGGEST STORIES SINCE THEN (hottest first):\n${lines}`;
+  const { raw, tokens } = await callModel(model, FLASH_PROMPT, user, FLASH_SCHEMA, "legend_newsflash", 500);
+  return { ...flashFrom(raw, stories.length), model, tokens };
+}
+
+function exampleNewsflash(stories) {
+  return {
+    ...flashFrom({ title: "Example newsflash headline", summary: "Example: what happened in the news while you were away, written by Legend from the biggest stories.", picks: [] }, stories.length),
+    model: "dry-run",
+  };
+}
+
 const STORY_PROMPT = `You are LEGEND, the news desk inside Alpha 9: Legends. A trader tapped a story to read it
 in the app instead of on the outlet's site. Write a short reader's brief of it from the TEXT given.
 summary: what happened, at most 60 words, plain and direct.
@@ -700,6 +769,8 @@ module.exports = {
   exampleScreen,
   exampleNews,
   exampleBriefing,
+  writeNewsflash,
+  exampleNewsflash,
   readStory,
   exampleStory,
   usageSummary: usage.summary,

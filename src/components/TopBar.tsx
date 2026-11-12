@@ -24,8 +24,8 @@ interface TopBarProps {
   garageCount: number | null;
   onGarage?: () => void;
   connection: Connection;
-  /** The background job running now (a screener or watchlist update), shown in the bar */
-  job: TopJob | null;
+  /** Background jobs running now (screener, news, watchlist updates), each shown with its own progress */
+  jobs: TopJob[];
   onOpenJob?: (source: TopJob["source"]) => void;
 }
 
@@ -86,7 +86,7 @@ function JobTile({ job, onOpen }: { job: TopJob; onOpen?: (source: TopJob["sourc
   return (
     <button
       type="button"
-      className={`jobtile${job.held ? " is-held" : ""}`}
+      className={`jobtile is-${job.source}${job.held ? " is-held" : ""}`}
       title={`${job.label}: ${detail}`}
       disabled={!onOpen}
       onClick={() => {
@@ -108,11 +108,50 @@ function JobTile({ job, onOpen }: { job: TopJob; onOpen?: (source: TopJob["sourc
   );
 }
 
-/** The loading line along the bottom edge of the top bar: lime fill with a white leading edge. */
-function JobLine({ job }: { job: TopJob }) {
+/**
+ * Two or more jobs at once: one row each, stacked in the tile's place, every row in its job's color
+ * with its name, what it's doing, its percentage and its own fill. Each opens its job's screen.
+ */
+function JobRow({ job, onOpen }: { job: TopJob; onOpen?: (source: TopJob["source"]) => void }) {
+  const { pct, left, count } = useJobProgress(job);
+  const detail = job.held ? "WAITING FOR YOUR SCAN" : [job.step, count, left].filter(Boolean).join(" · ");
+  return (
+    <button
+      type="button"
+      className={`jobrow is-${job.source}${job.held ? " is-held" : ""}`}
+      title={`${job.label}: ${detail}`}
+      disabled={!onOpen}
+      onClick={() => {
+        sfx.play("click");
+        onOpen?.(job.source);
+      }}
+    >
+      <span className="jobrow__fill" style={{ transform: `scaleX(${pct})` }} aria-hidden />
+      <span className="jobrow__name">{job.label}</span>
+      <span className="jobrow__step">{detail}</span>
+      <strong className="jobrow__pct">{job.progress ? `${Math.round(pct * 100)}%` : "--"}</strong>
+    </button>
+  );
+}
+
+function JobStack({ jobs, onOpen }: { jobs: TopJob[]; onOpen?: (source: TopJob["source"]) => void }) {
+  return (
+    <div className={`jobstack is-${jobs.length}`} role="group" aria-label={`${jobs.length} updates running`}>
+      {jobs.map((job) => (
+        <JobRow key={job.source} job={job} onOpen={onOpen} />
+      ))}
+    </div>
+  );
+}
+
+/**
+ * The loading line along the bottom edge of the top bar, with a white leading edge, in the job's
+ * color. With several jobs running the lines stack, one per job, in the same order as the rows.
+ */
+function JobLine({ job, index, count }: { job: TopJob; index: number; count: number }) {
   const { pct } = useJobProgress(job);
   return (
-    <span className={`topbar__line${job.held ? " is-held" : ""}`} aria-hidden>
+    <span className={`topbar__line is-${job.source}${job.held ? " is-held" : ""}${count > 1 ? " is-stacked" : ""}`} style={{ "--line-i": count - 1 - index } as CSSProperties} aria-hidden>
       <span className="topbar__line-fill" style={{ transform: `scaleX(${pct})` }} />
       <span className="topbar__line-edge" style={{ left: `${pct * 100}%` }} />
     </span>
@@ -159,7 +198,7 @@ function DateText() {
   return <span className="topbar__num">{new Date().toLocaleString("en-US", { month: "short", day: "numeric" }).toUpperCase()}</span>;
 }
 
-export function TopBar({ barRef, hidden, onBack, onHome, onSettings, usage, onTokens, garageCount, onGarage, connection, job, onOpenJob }: TopBarProps) {
+export function TopBar({ barRef, hidden, onBack, onHome, onSettings, usage, onTokens, garageCount, onGarage, connection, jobs, onOpenJob }: TopBarProps) {
   const marketState = useMarketState();
   const today = usage ? usage.today.tokens : null;
   const tokens = useRollingNumber(today, 1100, ROLL_DELAY_MS);
@@ -193,8 +232,9 @@ export function TopBar({ barRef, hidden, onBack, onHome, onSettings, usage, onTo
       {/* The free strip: the job tile and connection signal on the left, the soundtrack's island at a
           fixed point near the center (see styles/island.css) */}
       <div className="topbar__free">
-        <div className={`topbar__space${job ? " has-job" : ""}`}>
-          {job && <JobTile key={job.source} job={job} onOpen={onOpenJob} />}
+        <div className={`topbar__space${jobs.length ? " has-job" : ""}`}>
+          {jobs.length === 1 && <JobTile key={jobs[0].source} job={jobs[0]} onOpen={onOpenJob} />}
+          {jobs.length > 1 && <JobStack jobs={jobs} onOpen={onOpenJob} />}
           <ConnectionSignal connection={connection} />
         </div>
         <DynamicIsland />
@@ -280,7 +320,9 @@ export function TopBar({ barRef, hidden, onBack, onHome, onSettings, usage, onTo
         )}
       </Tile>
 
-      {job && <JobLine key={job.source} job={job} />}
+      {jobs.map((job, i) => (
+        <JobLine key={job.source} job={job} index={i} count={jobs.length} />
+      ))}
       <div className="a9-flash" aria-hidden />
     </header>
   );

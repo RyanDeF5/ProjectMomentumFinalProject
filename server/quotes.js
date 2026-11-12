@@ -36,7 +36,11 @@ async function getQuote(symbol, state = marketState()) {
   const quote = await yahooFinance.quote(ticker);
   if (!quote || !Number.isFinite(quote.regularMarketPrice)) throw new Error(`No quote for ${ticker}`);
 
-  const price = state === "PRE-MARKET" && Number.isFinite(quote.preMarketPrice) ? quote.preMarketPrice : quote.regularMarketPrice;
+  const pre = state === "PRE-MARKET" && Number.isFinite(quote.preMarketPrice);
+  const price = pre ? quote.preMarketPrice : quote.regularMarketPrice;
+  // When that price was set: the move is that trading day's, so a weekend scan shows Friday's
+  const at = pre ? quote.preMarketTime : quote.regularMarketTime;
+  const sessionAt = at ? new Date(at).toISOString() : null;
   let float = null;
   let website = null;
   try {
@@ -52,6 +56,7 @@ async function getQuote(symbol, state = marketState()) {
     fullName: quote.longName || quote.shortName || ticker,
     currentPrice: price,
     lastClose: quote.regularMarketPreviousClose,
+    sessionAt,
     currentVolume: quote.regularMarketVolume,
     averageVolume: quote.averageDailyVolume3Month,
     float,

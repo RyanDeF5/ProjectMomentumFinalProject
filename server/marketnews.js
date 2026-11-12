@@ -1,3 +1,4 @@
+const { waitForActivity } = require("./activity");
 // Market news: the day's headlines, read by Legend.
 //
 // Each update (on the schedule, or by hand):
@@ -35,6 +36,10 @@ const BATCH = 5; // stories per Legend call
 const MAX_AGE_HOURS = 24;
 const THIN_AGE_HOURS = 72; // when there's too little news in the last day
 const USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) Alpha9Legends/1.0";
+// The daily edition: the news is updated and the newsflash written with no page open, so it's ready
+// the moment the app is first opened that day (see "Daily edition" below)
+const EDITION_TIMES = [240, 300, 360, 420, 480, 540]; // minutes after midnight it may start: 4:00 to 9:00 AM
+const DEFAULT_EDITION = { enabled: true, minute: 360 };
 const DEFAULT_TOKENS_PER_STORY = 450;
 const DEFAULT_TOKENS_PER_BRIEFING = 1800;
 const PHASES = [
@@ -42,8 +47,10 @@ const PHASES = [
   { key: "price", label: "PRICES" },
   { key: "read", label: "LEGEND" },
   { key: "brief", label: "BRIEFING" },
+  { key: "stories", label: "STORY BRIEFS" },
 ];
-const DEFAULT_TIMING = { gather: 5000, price: 1500, read: 9000, brief: 7000 };
+const DEFAULT_TIMING = { gather: 5000, price: 1500, read: 9000, brief: 7000, stories: 9000 };
+const VERDICT_KEEP_MS = 48 * 3600_000; // Legend's read of a story is remembered this long, on the feed or off it
 
 const GOOGLE = (q) => `https://news.google.com/rss/search?q=${encodeURIComponent(`${q} when:1d`)}&hl=en-US&gl=US&ceid=US:en`;
 const FEEDS = [
@@ -98,17 +105,21 @@ const IMPACT_POINTS = { high: 6, medium: 3, low: 1, none: 0 };
 
 let store = load();
 const clients = new Set();
+// An edition's update runs with nobody connected
+let unattended = false;
+const waitForApp = () => waitForActivity(() => clients.size > 0 || schedule.background() || unattended);
 const progress = new Progress(PHASES, store.timing);
 let engine = { state: "offline", step: null, nextAt: null, progress: null, reason: null };
 let running = false;
 let forced = false;
 let wakeUp = null;
 let scanInProgress = () => false;
+let updating = false; // an update is under way (it may be waiting for the app before it shows a step)
 
 function load() {
   const base = {
     version: 1,
-    settings: { interval: DEFAULT_INTERVAL, dryRun: false, storyCount: DEFAULT_STORY_COUNT },
+    settings: { interval: DEFAULT_INTERVAL, dryRun: false, storyCount: DEFAULT_STORY_COUNT, edition: { ...DEFAULT_EDITION } },
     stories: [],
     briefing: null,
     pulse: [],
@@ -117,11 +128,12 @@ function load() {
     tokensPerStory: null,
     tokensPerBriefing: null,
     reads: {},
+    verdicts: {},
   };
   try {
     const parsed = JSON.parse(fs.readFileSync(FILE, "utf8"));
     if (parsed && Array.isArray(parsed.stories)) {
-      return { ...base, ...parsed, settings: { ...base.settings, ...parsed.settings }, timing: { ...DEFAULT_TIMING, ...parsed.timing }, reads: parsed.reads || {} };
+      return { ...base, ...parsed, settings: { ...base.settings, ...parsed.settings, edition: { ...DEFAULT_EDITION, ...parsed.settings?.edition } }, timing: { ...DEFAULT_TIMING, ...parsed.timing }, reads: parsed.reads || {}, verdicts: parsed.verdicts || {} };
     }
   } catch (err) {
     if (err.code !== "ENOENT") console.error("Market news file unreadable, starting fresh:", err.message);
@@ -160,6 +172,9 @@ function estimate() {
     batchMs: t.read,
     baseMs: t.gather + t.price,
     briefMs: t.brief,
+    // What whole updates have really spent and taken, now that only new stories are read
+    tokensPerUpdate: store.tokensPerUpdate ?? null,
+    updateMs: store.updateMs ?? null,
   };
 }
 
@@ -190,12 +205,31 @@ function connect(req, res) {
   res.write("retry: 3000\n\n");
   send(res, "snapshot", snapshot());
   clients.add(res);
-  const ping = setInterval(() => send(res, "ping", Date.now()), 15_000);
+  seen();
+  const ping = setInterval(() => {
+    send(res, "ping", Date.now());
+    seen();
+  }, 15_000);
   req.on("close", () => {
     clearInterval(ping);
     clients.delete(res);
+    seen(true);
+    if (wakeUp) wakeUp();
   });
   poke();
+}
+
+// When the app was last open (a page holds this stream only while it's in front). The daily edition
+// covers the news since then, and stops refreshing once the app has been opened for the day.
+const SEEN_SAVE_MS = 5 * 60_000;
+let seenSavedAt = 0;
+function seen(leaving = false) {
+  const now = Date.now();
+  store.lastSeenAt = now;
+  if (leaving || now - seenSavedAt > SEEN_SAVE_MS) {
+    seenSavedAt = now;
+    save();
+  }
 }
 
 // ---------- Loop ----------
@@ -415,6 +449,7 @@ async function quotes(symbols) {
   const list = [...new Set(symbols)];
   for (let i = 0; i < list.length; i += 50) {
     try {
+      await waitForApp();
       const batch = await yahooFinance.quote(list.slice(i, i + 50), {}, { validateResult: false });
       for (const q of Array.isArray(batch) ? batch : [batch]) if (q?.symbol) out.set(q.symbol, q);
     } catch (err) {
@@ -468,31 +503,58 @@ async function waitForScans() {
   }
 }
 
-async function update() {
+// One update at a time: a second caller (the loop and the daily edition can both ask) joins the one running
+let updateJob = null;
+function update() {
+  if (!updateJob) {
+    updating = true;
+    updateJob = runUpdate().finally(() => {
+      updating = false;
+      updateJob = null;
+    });
+  }
+  return updateJob;
+}
+
+async function runUpdate() {
   const started = Date.now();
+  // A reset during the update abandons it (its results would bring back what was cleared)
+  const gen = generation;
+  const live = () => {
+    if (gen !== generation) throw Object.assign(new Error("Reset"), { reset: true });
+  };
   const state = marketState();
   const count = store.settings.storyCount;
   const dry = store.settings.dryRun;
   progress.start();
   progress.plan("read", Math.ceil(count / BATCH));
   try {
+    await waitForApp();
     newsStep("gathering", "CHECKING THE NEWS SOURCES", "gather");
     const { items, sources } = await gather();
+    live();
     const clustered = cluster(items, Date.now());
     clustered.sort((a, b) => b.heat - a.heat);
     const top = clustered.slice(0, count);
-    progress.plan("read", Math.ceil(top.length / BATCH));
 
+    // Legend's earlier reads: from the last update, or remembered from one before (a story can drop
+    // out of the top and come back). Only stories without one are read in this update.
+    const now0 = Date.now();
+    for (const [id, v] of Object.entries(store.verdicts)) if (now0 - v.readAt > VERDICT_KEEP_MS) delete store.verdicts[id];
+    const previous = new Map(store.stories.map((s) => [s.id, s]));
+    const earlier = (id) => store.verdicts[id] || (previous.get(id)?.ai ? previous.get(id) : null);
+    progress.plan("read", Math.ceil(top.filter((s) => !earlier(s.id)).length / BATCH));
+
+    await waitForApp();
     newsStep("gathering", `PRICING THE STOCKS IN ${top.length} STORIES`, "price");
     const pulseSymbols = [...OPEN_PULSE, ...FUTURES_PULSE, ...GAUGES].map((p) => p.symbol);
-    const quoted = await quotes([...pulseSymbols, ...top.flatMap((s) => s.feedTickers)]);
+    const quoted = await quotes([...pulseSymbols, ...top.flatMap((s) => [...s.feedTickers, ...(earlier(s.id)?.ai?.tickers || [])])]);
+    live();
     store.pulse = pulseFrom(quoted, state);
 
-    // Last update's read stands until Legend reads the story again in this one
-    const previous = new Map(store.stories.map((s) => [s.id, s]));
     const stories = top.map((s) => {
-      const before = previous.get(s.id);
-      const out = { ...s, tickers: [], ai: before?.ai || null, readAt: before?.readAt || null, firstSeen: before?.firstSeen || Date.now() };
+      const before = earlier(s.id);
+      const out = { ...s, tickers: [], ai: before?.ai || null, readAt: before?.readAt || null, firstSeen: before?.firstSeen || previous.get(s.id)?.firstSeen || Date.now() };
       out.tickers = tickersFor(out, quoted, state);
       return out;
     });
@@ -511,6 +573,8 @@ async function update() {
         else hidden.minor++;
       }
       store.stats = {
+        reused: stories.length - unread.length,
+        briefed: stories.filter((s) => isKept(s) && store.reads[s.id]).length,
         startedAt: started,
         finishedAt: final ? now : store.stats?.finishedAt || 0,
         lastStartedAt: final ? started : store.stats?.lastStartedAt || 0,
@@ -526,22 +590,27 @@ async function update() {
         error: null,
       };
       if (final) {
-        // Briefs are kept only for stories still on the feed
-        const ids = new Set(stories.map((s) => s.id));
+        // Briefs are kept as long as Legend's read of the story is
+        const ids = new Set([...stories.map((s) => s.id), ...Object.keys(store.verdicts)]);
         for (const id of Object.keys(store.reads)) if (!ids.has(id)) delete store.reads[id];
         save();
       }
       broadcast("feed", feedPayload());
     };
+    const unread = stories.filter((s) => !s.ai);
     publish(false, 0);
 
-    // Legend reads the stories, hottest first, a few per call
+    // Legend reads only the new stories, hottest first, a few per call
     let readNow = 0;
+    let spentNow = 0;
     const batches = [];
-    for (let i = 0; i < stories.length; i += BATCH) batches.push(stories.slice(i, i + BATCH));
+    for (let i = 0; i < unread.length; i += BATCH) batches.push(unread.slice(i, i + BATCH));
     for (const [b, batch] of batches.entries()) {
+      await waitForApp();
       await waitForScans();
-      newsStep("reading", `LEGEND IS READING STORIES ${b * BATCH + 1}-${b * BATCH + batch.length}`, "read", b);
+      await waitForApp();
+      live();
+      newsStep("reading", `LEGEND IS READING NEW ${batch.length === 1 ? `STORY ${b * BATCH + 1}` : `STORIES ${b * BATCH + 1}-${b * BATCH + batch.length}`} OF ${unread.length}`, "read", b);
       try {
         // Each story goes with the stocks the feed tagged, as verified listings with their move now
         const asked = batch.map((s) => ({
@@ -552,11 +621,13 @@ async function update() {
         if (dry) progress.hold();
         else {
           const spent = Number(reply.tokens?.total);
+          if (spent > 0) spentNow += spent;
           if (spent > 0) {
             const perStory = spent / batch.length;
             store.tokensPerStory = Math.round(store.tokensPerStory ? store.tokensPerStory * 0.8 + perStory * 0.2 : perStory);
           }
         }
+        live();
         // Stocks Legend named that the feed didn't tag get priced too
         const named = reply.verdicts.flatMap((v) => v?.tickers || []).filter((t) => !quoted.has(t));
         if (named.length) for (const [k, v] of await quotes(named)) quoted.set(k, v);
@@ -565,41 +636,86 @@ async function update() {
           if (!verdict) return;
           s.ai = verdict;
           s.readAt = Date.now();
+          store.verdicts[s.id] = { ai: verdict, readAt: s.readAt, firstSeen: s.firstSeen };
           s.tickers = tickersFor(s, quoted, state);
           readNow++;
         });
         publish(false, readNow);
       } catch (err) {
+        if (err.reset) throw err;
         progress.hold();
         console.error(`Market news: Legend failed on batch ${b + 1}:`, err.message);
         if (/LM Studio|fetch failed|ECONNREFUSED|timeout/i.test(err.message)) break;
       }
     }
 
-    // The briefing, from the stories Legend kept
+    // The briefing, from the stories Legend kept: written again only when a new story has joined the
+    // ones it's written from, or the market session changed
     const kept = [...stories].filter(isKept).sort((a, b) => b.hot - a.hot);
-    if (kept.length) {
+    const briefIds = kept.slice(0, 15).map((s) => s.id);
+    const written = new Set(store.briefing?.ids || []);
+    const briefingDue = !store.briefing || store.briefing.session !== state || briefIds.some((id) => !written.has(id));
+    if (kept.length && briefingDue) {
+      await waitForApp();
       await waitForScans();
+      await waitForApp();
+      live();
       newsStep("reading", "LEGEND IS WRITING THE BRIEFING", "brief");
       try {
         const briefing = dry ? legend.exampleBriefing() : await legend.briefNews(kept.slice(0, 15), store.pulse, state);
         if (dry) progress.hold();
         else {
           const spent = Number(briefing.tokens?.total);
+          if (spent > 0) spentNow += spent;
           if (spent > 0) store.tokensPerBriefing = Math.round(store.tokensPerBriefing ? store.tokensPerBriefing * 0.8 + spent * 0.2 : spent);
         }
-        store.briefing = { ...briefing, at: Date.now(), session: state };
+        live();
+        store.briefing = { ...briefing, at: Date.now(), session: state, ids: briefIds };
       } catch (err) {
+        if (err.reset) throw err;
         progress.hold();
         console.error("Market news: briefing failed:", err.message);
       }
     }
 
+    // Every story on the page gets its reader's brief written ahead of time (hottest first), so
+    // opening one is instant; stories that already have one keep it
+    const unbriefed = kept.filter((s) => !store.reads[s.id]);
+    progress.plan("stories", unbriefed.length);
+    publish(false, readNow);
+    for (const [i, s] of unbriefed.entries()) {
+      await waitForApp();
+      await waitForScans();
+      await waitForApp();
+      live();
+      newsStep("reading", `LEGEND IS WRITING STORY BRIEFS ${i + 1} OF ${unbriefed.length}`, "stories", i);
+      try {
+        const read = await storyRead(s.id);
+        if (dry) progress.hold();
+        else spentNow += Number(read?.tokens?.total) || 0;
+      } catch (err) {
+        progress.hold();
+        if (err.status === 404) continue; // left the feed in a reset
+        console.error(`Market news: brief failed for ${s.id}:`, err.message);
+        if (/LM Studio|fetch failed|ECONNREFUSED|timeout/i.test(err.message)) break;
+      }
+    }
+
+    live();
     progress.end();
+    if (!dry) {
+      const ema = (old, v) => Math.round(old == null ? v : old * 0.7 + v * 0.3);
+      store.tokensPerUpdate = ema(store.tokensPerUpdate, spentNow);
+      store.updateMs = ema(store.updateMs, Date.now() - started);
+    }
     publish(true, readNow);
-    console.log(`Market news: ${items.length} items, ${clustered.length} stories, ${readNow}/${stories.length} read, ${store.stats.kept} kept in ${Math.round((Date.now() - started) / 1000)}s`);
+    console.log(`Market news: ${items.length} items, ${clustered.length} stories, ${readNow} new read (${stories.length - unread.length} kept from before), ${store.stats.kept} shown, ${unbriefed.length} briefs written, briefing ${briefingDue ? "rewritten" : "kept"}, ${spentNow} tokens in ${Math.round((Date.now() - started) / 1000)}s`);
   } catch (err) {
     progress.hold();
+    if (err.reset) {
+      console.log("Market news: update abandoned for a reset");
+      return;
+    }
     console.error("Market news update failed:", err.message);
     store.stats = { ...(store.stats || {}), finishedAt: Date.now(), error: err.message };
     save();
@@ -768,13 +884,219 @@ function storyRead(id, again = false) {
   return job;
 }
 
+// ---------- Newsflash ----------
+// The first time the app is opened each day it greets the trader with the big news since they were
+// last on (like the game's event banner). Only news worth it: high impact, or a confirmed (solid)
+// medium-impact story. Nothing that big, no newsflash.
+
+const FLASH_MAX_STORIES = 6;
+const FLASH_MAX_BACK_MS = 72 * 3600_000; // a long weekend away
+const FLASH_FALLBACK_MS = 24 * 3600_000; // no big news since the last visit: any from the last day
+const FLASH_FRESH_MS = 45 * 60_000; // news older than this (and from before the visit) is updated first
+const FLASH_STALE_MS = 3 * 3600_000; // news older than this is updated first whatever it covers: a newsflash isn't old news
+const isBig = (s) => isKept(s) && (s.ai.impact === "high" || (s.ai.impact === "medium" && s.ai.quality === "solid"));
+let flashJob = null;
+
+function awayLabel(since, now) {
+  const hours = Math.round((now - since) / 3600_000);
+  const when = new Date(since).toLocaleString("en-US", { weekday: "long", hour: "numeric", minute: "2-digit" });
+  return `${when} (${hours < 1 ? "under an hour" : `${hours} hours`} ago)`;
+}
+
+function flashPayload(flash) {
+  const byId = new Map(store.stories.map((s) => [s.id, s]));
+  const stories = flash.order
+    .map((id) => byId.get(id))
+    .filter(Boolean)
+    .map((s) => {
+      const read = store.reads[s.id];
+      // Legend's short brief, for the story's summary inside the pop-up (most are pre-written)
+      const brief = read ? { summary: read.summary, points: read.points || [], stocks: read.stocks || [], context: read.context || "" } : null;
+      return { ...forPage(s), image: read?.image || null, brief };
+    });
+  if (!stories.length) return null;
+  const { ids: _ids, order: _order, window: _window, ...rest } = flash;
+  return { ...rest, stories };
+}
+
+/**
+ * GET /market-news/newsflash?since=<ms of the last visit>. Resolves to { status: "ready", flash },
+ * { status: "none" } (nothing big), or { status: "pending" } while the news is brought up to date
+ * (an update is started if one isn't running; ask again when it finishes).
+ */
+async function newsflash(sinceRaw) {
+  const now = Date.now();
+  let since = Number(sinceRaw);
+  if (!Number.isFinite(since) || since <= 0 || since > now) since = now - FLASH_FALLBACK_MS;
+  since = Math.max(since, now - FLASH_MAX_BACK_MS);
+
+  // The news should cover the time away: from before the visit and over 45 minutes old, update first.
+  // So should news over 3 hours old (the daily edition keeps it newer than that until the app is opened).
+  const finished = store.stats?.finishedAt || 0;
+  const busy = updating || ["gathering", "reading", "waiting"].includes(engine.state);
+  if ((finished < since && now - finished > FLASH_FRESH_MS) || now - finished > FLASH_STALE_MS) {
+    if (!busy) updateNow();
+    return { status: "pending" };
+  }
+
+  // The newsflash written ahead of time (the daily edition): nothing has been read since it was
+  // written and it's from after the last visit, so it is the answer. No recount, no wait.
+  const ready = store.flash;
+  if (ready && ready.at >= finished && ready.at >= since) {
+    const payload = flashPayload(ready);
+    if (payload) return { status: "ready", flash: { ...payload, since, window: ready.window || "recent" } };
+  }
+
+  const ageOf = (s) => now - Date.parse(s.publishedAt);
+  const big = store.stories.filter(isBig).sort((a, b) => b.hot - a.hot);
+  let pool = big.filter((s) => Date.parse(s.publishedAt) >= since);
+  let window = "since";
+  if (!pool.length) {
+    pool = big.filter((s) => ageOf(s) <= FLASH_FALLBACK_MS);
+    window = "recent";
+  }
+  if (!pool.length) return { status: "none" };
+  const picked = pool.slice(0, FLASH_MAX_STORIES);
+  const ids = picked.map((s) => s.id);
+
+  // The same stories as the last newsflash: show that one again, no new tokens
+  const last = store.flash;
+  if (last && last.ids.length === ids.length && ids.every((id) => last.ids.includes(id))) {
+    const payload = flashPayload(last);
+    if (payload) {
+      // Still the same stories after a later update: it stands as the newsflash for this news too
+      if (last.at < finished) {
+        last.at = now;
+        last.window = window;
+        save();
+      }
+      return { status: "ready", flash: { ...payload, since, window } };
+    }
+  }
+
+  if (!flashJob) {
+    flashJob = (async () => {
+      const state = marketState();
+      const asked = picked.map((s) => ({ ...s, ageHours: ageOf(s) / 3600_000 }));
+      let written;
+      try {
+        written = store.settings.dryRun ? legend.exampleNewsflash(asked) : await legend.writeNewsflash(asked, awayLabel(since, now), state);
+      } catch (err) {
+        // Legend unreachable: the newsflash still shows, headed by the biggest story
+        console.error("Newsflash: Legend failed:", err.message);
+        written = { title: picked[0].title, summary: picked[0].ai.why, picks: picked.map((_, i) => i), model: null, tokens: null };
+      }
+      const flash = {
+        title: written.title || picked[0].title,
+        summary: written.summary || picked[0].ai.why,
+        mood: store.briefing?.mood || null,
+        ids,
+        order: written.picks.map((i) => ids[i]),
+        window,
+        at: Date.now(),
+        model: written.model,
+        tokens: written.tokens || null,
+      };
+      if (written.model && written.model !== "dry-run") {
+        store.flash = flash;
+        save();
+      }
+      console.log(`Newsflash: "${flash.title}" from ${ids.length} stories${flash.tokens?.total ? `, ${flash.tokens.total} tokens` : ""}`);
+      return flash;
+    })().finally(() => {
+      flashJob = null;
+    });
+  }
+  const flash = await flashJob;
+  const payload = flashPayload(flash);
+  return payload ? { status: "ready", flash: { ...payload, since, window } } : { status: "none" };
+}
+
+// ---------- Daily edition ----------
+// The newsflash should be waiting when the app is first opened each day, not start being made then.
+// So from the edition's time each morning (6:00 AM unless changed), with no page open, the server
+// updates the news and writes the newsflash, then keeps it current with another update every two
+// hours until the app is opened or the evening session ends. A computer that was asleep at that time
+// catches up as soon as it wakes. It runs even while the news job's own auto update is off; the
+// pause-everything switch and the daily token limit still hold it.
+
+const EDITION_REFRESH_MS = 2 * 3600_000;
+const EDITION_LAST_MINUTE = 20 * 60; // no refreshes after 8:00 PM
+const EDITION_RETRY_MS = 15 * 60_000; // after a failed attempt (Legend or the network down)
+const EDITION_CHECK_MS = 60_000;
+let editionRunning = false;
+
+/** Whether an edition (the day's first, or a refresh) should run now. */
+function editionDue(now = Date.now()) {
+  const cfg = store.settings.edition;
+  if (!cfg.enabled || editionRunning || clients.size) return false;
+  const d = new Date(now);
+  const minute = d.getHours() * 60 + d.getMinutes();
+  if (minute < cfg.minute || minute >= EDITION_LAST_MINUTE) return false;
+  const startAt = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime() + cfg.minute * 60_000;
+  // Opened since this morning's edition time: the day's newsflash has been seen
+  if ((store.lastSeenAt || 0) >= startAt) return false;
+  const blocked = schedule.gate("news", now);
+  if (blocked && blocked.reason !== "OUTSIDE ITS SCHEDULE") return false;
+  const ed = store.edition || {};
+  if (ed.triedAt && (ed.at || 0) < ed.triedAt && now - ed.triedAt < EDITION_RETRY_MS) return false;
+  if ((ed.at || 0) < startAt) return true;
+  return now - ed.at >= EDITION_REFRESH_MS;
+}
+
+async function runEdition() {
+  if (editionRunning) return;
+  editionRunning = true;
+  unattended = true;
+  const started = Date.now();
+  // The news since the app was last open; no page is open now, so that's the end of the last visit
+  const since = store.lastSeenAt || null;
+  const first = (store.edition?.at || 0) < new Date(new Date(started).setHours(0, 0, 0, 0)).getTime();
+  store.edition = { ...(store.edition || {}), triedAt: started };
+  try {
+    console.log(`Daily edition: ${first ? "updating" : "refreshing"} the news with no page open`);
+    await update();
+    const stats = store.stats;
+    if (!stats || stats.error || (stats.finishedAt || 0) < started) throw new Error(stats?.error || "the update didn't finish");
+    const result = await newsflash(since);
+    store.edition = { triedAt: started, at: Date.now(), status: result.status, title: result.status === "ready" ? result.flash.title : null, error: null };
+    save();
+    console.log(`Daily edition: ${result.status === "ready" ? `ready, "${result.flash.title}"` : result.status === "none" ? "no big news, no newsflash" : "the newsflash is still pending"}`);
+  } catch (err) {
+    store.edition = { ...(store.edition || {}), triedAt: started, error: err.message };
+    save();
+    console.error(`Daily edition failed (trying again in ${EDITION_RETRY_MS / 60_000} minutes):`, err.message);
+  } finally {
+    unattended = false;
+    editionRunning = false;
+    // The engine's last word was the update's; with nobody connected it goes back to offline
+    if (!clients.size && !running) setEngine("offline");
+  }
+}
+
+function checkEdition() {
+  if (editionDue()) void runEdition();
+}
+// Checked every minute rather than timed to the hour, so a sleeping computer catches up on waking
+setInterval(checkEdition, EDITION_CHECK_MS).unref();
+setTimeout(checkEdition, 5000).unref();
+
 // ---------- Changes ----------
 
 function httpError(status, message) {
   return Object.assign(new Error(message), { status });
 }
 
-function updateSettings({ interval, dryRun, storyCount }) {
+function updateSettings({ interval, dryRun, storyCount, edition }) {
+  if (edition !== undefined) {
+    const next = { ...store.settings.edition };
+    if (edition?.enabled !== undefined) next.enabled = Boolean(edition.enabled);
+    if (edition?.minute !== undefined) {
+      if (!EDITION_TIMES.includes(Number(edition.minute))) throw httpError(400, `The edition time must be one of ${EDITION_TIMES.join(", ")}`);
+      next.minute = Number(edition.minute);
+    }
+    store.settings.edition = next;
+  }
   if (interval !== undefined) {
     if (!INTERVALS.includes(Number(interval))) throw httpError(400, `Interval must be one of ${INTERVALS.join(", ")}`);
     store.settings.interval = Number(interval);
@@ -788,6 +1110,21 @@ function updateSettings({ interval, dryRun, storyCount }) {
   broadcast("settings", store.settings);
   poke();
   return store.settings;
+}
+
+// ---------- Reset (developer option) ----------
+
+let generation = 0;
+
+/** Start over: stories, Legend's reads, the briefing and every story brief are cleared, and a fresh update runs. */
+function reset() {
+  generation++;
+  Object.assign(store, { stories: [], briefing: null, stats: null, reads: {}, verdicts: {}, flash: null });
+  save();
+  broadcast("feed", feedPayload());
+  forced = true;
+  poke();
+  return true;
 }
 
 /** Update now, whatever the schedule says. */
@@ -804,7 +1141,17 @@ function setScanCheck(check) {
 
 /** For the schedule screen. */
 function scheduleInfo() {
-  return { interval: store.settings.interval, intervals: INTERVALS, storyCount: store.settings.storyCount, storyCounts: STORY_COUNTS, engine, estimate: estimate(), lastFinishedAt: store.stats?.finishedAt || 0 };
+  const ed = store.edition || {};
+  return {
+    interval: store.settings.interval,
+    intervals: INTERVALS,
+    storyCount: store.settings.storyCount,
+    storyCounts: STORY_COUNTS,
+    engine,
+    estimate: estimate(),
+    lastFinishedAt: store.stats?.finishedAt || 0,
+    edition: { ...store.settings.edition, times: EDITION_TIMES, refreshMs: EDITION_REFRESH_MS, lastAt: ed.at || 0, status: ed.status || null, title: ed.title || null, error: ed.error || null, running: editionRunning },
+  };
 }
 
-module.exports = { connect, snapshot, updateSettings, updateNow, setScanCheck, poke, scheduleInfo, storyRead, DEFAULT_INTERVAL, _test: { outletLink, fetchArticle } };
+module.exports = { connect, snapshot, updateSettings, updateNow, setScanCheck, poke, scheduleInfo, storyRead, newsflash, reset, DEFAULT_INTERVAL, _test: { outletLink, fetchArticle, editionDue, runEdition, store: () => store } };

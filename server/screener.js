@@ -1,3 +1,4 @@
+const { waitForActivity } = require("./activity");
 // The stock screener: Legend's continuous hunt for the day's best momentum setups.
 //
 // Each update (while a page is connected and the screener isn't paused):
@@ -67,6 +68,7 @@ const NOT_TICKERS = new Set(
 
 let store = load();
 const clients = new Set();
+const waitForApp = () => waitForActivity(() => clients.size > 0 || schedule.background());
 const progress = new Progress(PHASES, store.timing);
 let engine = { state: "offline", step: null, symbol: null, nextAt: null, progress: null, reason: null };
 let countSentAt = 0;
@@ -95,6 +97,16 @@ function load() {
         timing: { ...DEFAULT_TIMING, ...parsed.timing },
         ranks: parsed.ranks || {},
         tokensPerGrade: parsed.tokensPerGrade || null,
+        tokensPerUpdate: parsed.tokensPerUpdate ?? null,
+        updateMs: parsed.updateMs ?? null,
+        // Older saves have no grade memory yet: start it from the board's grades
+        grades:
+          parsed.grades ||
+          Object.fromEntries(
+            parsed.board
+              .filter((e) => e.ai && e.analyzedAt)
+              .map((e) => [e.symbol, { ai: e.ai, analyzedAt: e.analyzedAt, analyzedChange: e.analyzedChange, session: parsed.stats?.session, news: (e.news || []).map((n) => n.url).filter(Boolean) }]),
+          ),
       };
     }
   } catch (err) {
@@ -109,6 +121,7 @@ function load() {
     timing: { ...DEFAULT_TIMING },
     ranks: {},
     tokensPerGrade: null,
+    grades: {},
   };
 }
 
@@ -144,6 +157,9 @@ function estimate() {
     measured: Boolean(store.tokensPerGrade),
     gradeMs: t.grade,
     baseMs: t.find + t.quote + t.float + t.news,
+    // What whole updates have really spent and taken, now that only new or changed stocks are graded
+    tokensPerUpdate: store.tokensPerUpdate ?? null,
+    updateMs: store.updateMs ?? null,
   };
 }
 
@@ -181,6 +197,7 @@ function connect(req, res) {
   req.on("close", () => {
     clearInterval(ping);
     clients.delete(res);
+    if (wakeUp) wakeUp();
   });
   poke();
 }
@@ -212,7 +229,8 @@ async function loop() {
   if (running) return;
   running = true;
   try {
-    while (clients.size || schedule.background()) {
+    // A scan asked for by hand (or a reset) runs even with nobody connected
+    while (clients.size || schedule.background() || forced) {
       const interval = store.settings.interval * 1000;
       if (!interval && !forced) {
         setEngine("paused");
@@ -258,6 +276,7 @@ async function fromYahooScreens() {
     }),
   );
   try {
+    await waitForApp();
     const t = await yahooFinance.trendingSymbols("US", { count: 25 }, { validateResult: false });
     for (const q of t.quotes || []) found.push({ symbol: q.symbol, source: "TRENDING" });
   } catch (err) {
@@ -332,6 +351,7 @@ async function quotes(symbols) {
   const out = [];
   for (let i = 0; i < symbols.length; i += 50) {
     try {
+      await waitForApp();
       const batch = await yahooFinance.quote(symbols.slice(i, i + 50), {}, { validateResult: false });
       out.push(...(Array.isArray(batch) ? batch : [batch]).filter(Boolean));
     } catch (err) {
@@ -410,12 +430,18 @@ function metricsFor(c, state) {
 
 async function scan() {
   const started = Date.now();
+  // A reset during the scan abandons it (its results would bring back what was cleared)
+  const gen = generation;
+  const live = () => {
+    if (gen !== generation) throw Object.assign(new Error("Reset"), { reset: true });
+  };
   const state = marketState();
   const criteria = store.settings.criteria;
   const boardSize = store.settings.boardSize;
   progress.start();
   progress.plan("grade", boardSize);
   try {
+    await waitForApp();
     scanStep("scanning", "SEARCHING THE MARKET", "find");
     const [screens, twits, headlines] = await Promise.all([fromYahooScreens(), fromStockTwits(), fromHeadlines()]);
     const sources = new Map();
@@ -428,8 +454,13 @@ async function scan() {
       sources.set(symbol, entry);
     }
 
+    await waitForApp();
+    live();
     scanStep("scanning", `PRICING ${sources.size} STOCKS`, "quote");
     const quoted = await quotes([...sources.keys()]);
+    // When this update's prices were pulled: each board entry carries it, since the board fills in
+    // with these prices well before the update finishes
+    const quotedAt = Date.now();
     const movers = quoted
       .filter((q) => q.quoteType === "EQUITY" && q.market === "us_market")
       .map((q) => {
@@ -453,6 +484,7 @@ async function scan() {
           marketCap: q.marketCap || null,
           found: [...sources.get(q.symbol).sources],
           headline: sources.get(q.symbol).headline,
+          quotedAt,
         };
       })
       .filter((c) => Number.isFinite(c.price) && Number.isFinite(c.change))
@@ -464,6 +496,7 @@ async function scan() {
       movers,
       6,
       async (c) => {
+        await waitForApp();
         Object.assign(c, await profileOf(c.symbol, c.sharesOutstanding));
       },
       scanCount,
@@ -479,25 +512,36 @@ async function scan() {
       top,
       6,
       async (c) => {
+        await waitForApp();
         c.news = (await getNews(c.symbol, c.name, { maxAgeMs: NEWS_MAX_AGE_MS })).items.map(({ excerpt: _e, ...n }) => n);
       },
       scanCount,
     );
     const previous = new Map(store.board.map((e) => [e.symbol, e]));
+    pruneGrades();
     for (const c of top) {
       c.pillars = pillarsFor(c, criteria);
       c.passed = c.pillars.filter((p) => p.pass).length;
       const before = previous.get(c.symbol);
+      const kept = store.grades[c.symbol];
       c.firstSeen = before?.firstSeen || Date.now();
-      // Last update's grade stands until Legend re-grades it in this one
-      if (before?.ai) Object.assign(c, { ai: before.ai, analyzedAt: before.analyzedAt, analyzedChange: before.analyzedChange });
+      // A stock graded earlier (on the board last time, or one that dropped off and came back)
+      // keeps its grade; Legend only grades it again when there's something new to read
+      if (kept?.ai) Object.assign(c, { ai: kept.ai, analyzedAt: kept.analyzedAt, analyzedChange: kept.analyzedChange });
+      c.regrade = regradeReason(c, kept, state);
     }
     // Board as it stands now: new prices and news, last grades
+    live();
     publish(top, started, quoted.length, movers.length, false);
 
-    // Legend re-grades every stock on the board: last update's best first, then new arrivals
-    const order = [...top].sort((a, b) => (store.ranks[a.symbol] ?? 1e9) - (store.ranks[b.symbol] ?? 1e9) || b.passed - a.passed || b.quant - a.quant);
+    // Legend grades only what's new: stocks it hasn't graded, and ones with fresh news, a big change
+    // in the move, a new session or an old grade. Last update's best first, then new arrivals.
+    const order = top
+      .filter((c) => c.regrade)
+      .sort((a, b) => (store.ranks[a.symbol] ?? 1e9) - (store.ranks[b.symbol] ?? 1e9) || b.passed - a.passed || b.quant - a.quant);
+    progress.plan("grade", order.length);
     let graded = 0;
+    let spentNow = 0;
     for (const [i, c] of order.entries()) {
       if (scanInProgress()) {
         const held = progress.hold();
@@ -506,7 +550,9 @@ async function scan() {
           await sleep(1000);
         }
       }
-      scanStep("analyzing", `LEGEND IS GRADING ${c.symbol}`, "grade", i, { symbol: c.symbol });
+      await waitForApp();
+      live();
+      scanStep("analyzing", `LEGEND IS GRADING ${c.symbol} (${REGRADE_LABEL[c.regrade]})`, "grade", i, { symbol: c.symbol });
       const stock = { symbol: c.symbol, fullName: c.name, currentPrice: c.price, lastClose: c.prevClose, volume: c.volume, averageVolume: c.avgVolume, float: c.float };
       const checks = {
         pillars: c.pillars.map(({ label, value, pass }) => ({ label, value, pass })),
@@ -519,30 +565,71 @@ async function scan() {
         c.ai = store.settings.dryRun ? legend.exampleScreen(stock, state, c.news, checks) : await legend.screen(stock, state, c.news, checks);
         c.analyzedAt = Date.now();
         c.analyzedChange = c.change;
+        live();
+        store.grades[c.symbol] = { ai: c.ai, analyzedAt: c.analyzedAt, analyzedChange: c.change, session: state, news: (c.news || []).map((n) => n.url).filter(Boolean) };
         graded++;
         if (store.settings.dryRun) progress.hold(); // instant, so not a timing to learn from
         else {
           const spent = Number(c.ai.tokens?.total);
+          if (spent > 0) spentNow += spent;
           if (spent > 0) store.tokensPerGrade = Math.round(store.tokensPerGrade ? store.tokensPerGrade * 0.8 + spent * 0.2 : spent);
         }
         publish(top, started, quoted.length, movers.length, false, graded);
       } catch (err) {
+        if (err.reset) throw err;
         progress.hold();
         console.error(`Screener: Legend failed on ${c.symbol}:`, err.message);
         if (/LM Studio|fetch failed|ECONNREFUSED|timeout/i.test(err.message)) break;
       }
     }
 
+    live();
     progress.end();
+    if (!store.settings.dryRun) {
+      const ema = (old, v) => Math.round(old == null ? v : old * 0.7 + v * 0.3);
+      store.tokensPerUpdate = ema(store.tokensPerUpdate, spentNow);
+      store.updateMs = ema(store.updateMs, Date.now() - started);
+    }
     publish(top, started, quoted.length, movers.length, true, graded);
     announce();
-    console.log(`Screener: ${sources.size} found, ${quoted.length} quoted, ${movers.length} movers, ${graded}/${top.length} graded in ${Math.round((Date.now() - started) / 1000)}s`);
+    console.log(`Screener: ${sources.size} found, ${quoted.length} quoted, ${movers.length} movers, ${graded} graded (${top.length - order.length} kept from before), ${spentNow} tokens in ${Math.round((Date.now() - started) / 1000)}s`);
   } catch (err) {
     progress.hold();
+    if (err.reset) {
+      console.log("Screener: scan abandoned for a reset");
+      return;
+    }
     console.error("Screener scan failed:", err.message);
     store.stats = { ...(store.stats || {}), finishedAt: Date.now(), error: err.message };
     save();
   }
+}
+
+// ---------- Grading only what's new ----------
+
+const GRADE_KEEP_MS = 24 * 3600_000; // grades are remembered this long, on or off the board
+const GRADE_STALE_MS = 3 * 3600_000; // after this, a grade is redone even with nothing new
+const REGRADE_LABEL = { new: "NEW", news: "NEW NEWS", move: "BIG MOVE", session: "NEW SESSION", stale: "REFRESH" };
+
+function pruneGrades() {
+  const now = Date.now();
+  for (const [symbol, g] of Object.entries(store.grades)) if (now - g.analyzedAt > GRADE_KEEP_MS) delete store.grades[symbol];
+}
+
+/**
+ * Why Legend should grade a stock again, or null to keep its grade: never graded, news it hasn't
+ * read, the move changed a lot since the grade (10 points, or a quarter of it), a new market
+ * session, or the grade is over 3 hours old.
+ */
+function regradeReason(c, kept, state) {
+  if (!kept?.ai) return "new";
+  if (kept.session !== state) return "session";
+  const read = new Set(kept.news || []);
+  if ((c.news || []).some((n) => n.url && !read.has(n.url))) return "news";
+  const moved = Math.abs(c.change - (kept.analyzedChange ?? c.change));
+  if (moved >= Math.max(10, Math.abs(kept.analyzedChange ?? 0) * 0.25)) return "move";
+  if (Date.now() - kept.analyzedAt > GRADE_STALE_MS) return "stale";
+  return null;
 }
 
 // Board order: Legend's setup grade first, then score. Stocks Legend hasn't graded yet wait between
@@ -582,6 +669,7 @@ function publish(top, started, quotedCount, moverCount, final, gradedNow = 0) {
     ai: c.ai || null,
     analyzedAt: c.analyzedAt || null,
     analyzedChange: c.analyzedChange ?? null,
+    quotedAt: c.quotedAt || null,
     firstSeen: c.firstSeen,
   }));
   entries.sort((a, b) => gradeRank(b) - gradeRank(a) || b.score - a.score || b.passed - a.passed || b.quant - a.quant);
@@ -602,6 +690,8 @@ function publish(top, started, quotedCount, moverCount, final, gradedNow = 0) {
     shown: entries.length,
     graded: entries.filter((e) => e.ai).length,
     gradedNow,
+    /** Graded earlier and kept this update (nothing new to read) */
+    reused: top.filter((c) => c.ai && !c.regrade).length,
     boardSize: store.settings.boardSize,
     session: marketState(),
     error: null,
@@ -667,6 +757,24 @@ function updateSettings({ interval, dryRun, boardSize }) {
 }
 
 /** Run a scan now, even while paused. */
+// ---------- Reset (developer option) ----------
+
+let generation = 0;
+
+/** Start over: the board, its ranks and every remembered grade are cleared, and a fresh scan runs. */
+function reset() {
+  generation++;
+  store.board = [];
+  store.stats = null;
+  store.ranks = {};
+  store.grades = {};
+  save();
+  broadcast("board", { board: store.board, stats: store.stats, estimate: estimate() });
+  forced = true;
+  poke();
+  return true;
+}
+
 function scanNow() {
   if (engine.state === "scanning" || engine.state === "analyzing") return false;
   forced = true;
@@ -692,4 +800,4 @@ function scheduleInfo() {
   };
 }
 
-module.exports = { connect, snapshot, updateSettings, scanNow, setScanCheck, poke, tickersIn, scheduleInfo };
+module.exports = { connect, snapshot, updateSettings, scanNow, reset, setScanCheck, poke, tickersIn, scheduleInfo };

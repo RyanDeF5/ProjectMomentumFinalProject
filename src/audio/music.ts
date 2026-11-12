@@ -96,8 +96,10 @@ class MusicPlayer {
   analyser: AnalyserNode | null = null;
   private queue: number[] = [];
   private started = false;
-  /** Paused because the tab was hidden; plays again when it's back */
-  private resumeOnShow = false;
+  /** The app isn't in front (another tab, another window or app): the song keeps going, silent */
+  private away = false;
+  /** A stock search is on its loading screen: the music fades out, then back in for the results */
+  private ducked = false;
   private loading: Promise<void> | null = null;
 
   getState = () => this.state;
@@ -139,27 +141,38 @@ class MusicPlayer {
     window.addEventListener("pointerdown", start, true);
     window.addEventListener("keydown", start, true);
 
-    // Like a game, the music only plays while the app is in front: switching tabs (or minimizing
-    // the window) pauses it, and coming back picks it up where it left off with a quick fade in
-    document.addEventListener("visibilitychange", () => {
-      if (document.hidden) {
-        if (this.state.playing) {
-          this.resumeOnShow = true;
-          this.pause();
-        }
-      } else if (this.resumeOnShow) {
-        this.resumeOnShow = false;
-        this.fadeIn();
-        void this.play();
-      }
-    });
+    // Like the game: when the app isn't in front (another tab, or clicking into another window or
+    // app), the music keeps playing but goes silent; coming back brings the sound up again, the
+    // song having carried on in the meantime
+    const check = () => this.setAway(document.hidden || !document.hasFocus());
+    document.addEventListener("visibilitychange", check);
+    window.addEventListener("blur", check);
+    window.addEventListener("focus", check);
+    check();
   }
 
-  private fadeIn(seconds = 0.8) {
+  private setAway(away: boolean) {
+    if (away === this.away) return;
+    this.away = away;
+    // A quick fade out on leaving, a slower fade back in on return
+    this.fade(away ? 0.25 : 0.8);
+  }
+
+  /**
+   * Like the game going into a race: the menu music fades out quickly as the loading screen comes
+   * up, and fades back in once the results are showing. The song keeps playing underneath.
+   */
+  duck(on: boolean) {
+    if (on === this.ducked) return;
+    this.ducked = on;
+    this.fade(on ? 0.6 : 1.4);
+  }
+
+  private fade(seconds: number) {
     if (!this.gain || !this.ctx) return;
     const now = this.ctx.currentTime;
     this.gain.gain.cancelScheduledValues(now);
-    this.gain.gain.setValueAtTime(0, now);
+    this.gain.gain.setValueAtTime(this.gain.gain.value, now);
     this.gain.gain.linearRampToValueAtTime(this.level(), now + seconds);
   }
 
@@ -204,7 +217,8 @@ class MusicPlayer {
   }
 
   private level() {
-    return this.state.muted ? 0 : this.state.volume ** 2; // perceptual curve for the slider
+    if (this.state.muted || this.away || this.ducked) return 0;
+    return this.state.volume ** 2; // perceptual curve for the slider
   }
 
   private applyLevel() {
@@ -242,10 +256,7 @@ class MusicPlayer {
     this.audio?.pause();
   }
 
-  /** Pause or play from the player's button (a pause here stays paused when the tab comes back) */
-
   toggle() {
-    this.resumeOnShow = false;
     if (this.state.playing) this.pause();
     else void this.play();
   }

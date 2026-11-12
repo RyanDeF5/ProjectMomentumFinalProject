@@ -71,6 +71,15 @@ async function request(path: string, init: RequestInit) {
   return res;
 }
 
+/**
+ * When the board's numbers are from: the newest prices on it. The board fills in with a new update's
+ * prices well before that update finishes, so this runs ahead of the stats' finish time.
+ */
+export function boardDataAt(screener: Pick<Screener, "board" | "stats">): number | null {
+  const quoted = Math.max(0, ...screener.board.map((e) => e.quotedAt ?? 0));
+  return Math.max(quoted, screener.stats?.finishedAt ?? 0) || null;
+}
+
 /** Scan now, even while paused (ignored if a scan is already running). */
 export async function scanNow() {
   await request("/screener/scan", { method: "POST" });

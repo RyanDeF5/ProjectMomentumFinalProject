@@ -15,6 +15,8 @@ interface RevealProps {
   type?: "button";
   ref?: Ref<HTMLDivElement>;
   title?: string;
+  id?: string;
+  role?: string;
   [attr: `aria-${string}` | `data-${string}`]: unknown;
 }
 

@@ -3,6 +3,10 @@ export interface StockData {
   fullName: string;
   currentPrice: number;
   lastClose: number;
+  /** When the price was set (ISO), so the move is labeled with its trading day; absent on manual entries */
+  sessionAt?: string | null;
+  /** When this data was pulled (ms): a scan, or the watchlist or screener update it came from */
+  asOf?: number | null;
   volume: number;
   averageVolume: number;
   float: number;
@@ -283,6 +287,8 @@ export interface ScreenerEntry {
   grade: SetupGrade | null;
   ai: LegendResponse | null;
   analyzedAt: number | null;
+  /** When its price was pulled (the update that put it on the board); missing on older boards */
+  quotedAt?: number | null;
   firstSeen: number;
   /** Place among the A+ to C setups (null while not graded, or graded F) */
   rank: number | null;
@@ -300,6 +306,9 @@ export interface ScreenerEstimate {
   /** Time per Legend grade, and for the steps before grading */
   gradeMs: number;
   baseMs: number;
+  /** Measured over real updates (only new or changed stocks are graded); null until one has run */
+  tokensPerUpdate?: number | null;
+  updateMs?: number | null;
 }
 
 export interface ScreenerSettings {
@@ -322,6 +331,8 @@ export interface ScreenerStats {
   graded: number;
   /** Grades done in the update running now */
   gradedNow?: number;
+  /** Grades kept from earlier updates (nothing new to read) */
+  reused?: number;
   boardSize?: number;
   session: MarketState;
   error: string | null;
@@ -442,6 +453,14 @@ export interface NewsSettings {
   dryRun: boolean;
   /** Stories Legend reads per update */
   storyCount: number;
+  /** The daily edition: the news updated and the newsflash written with no page open */
+  edition: NewsEdition;
+}
+
+export interface NewsEdition {
+  enabled: boolean;
+  /** Minutes after midnight it starts each day */
+  minute: number;
 }
 
 export interface NewsStats {
@@ -453,6 +472,9 @@ export interface NewsStats {
   clustered: number;
   read: number;
   readNow?: number;
+  /** Reads kept from earlier updates, and kept stories with their reader's brief written */
+  reused?: number;
+  briefed?: number;
   kept: number;
   hidden: { promo: number; stale: number; offtopic: number; minor: number };
   sources: Record<string, number | string>;
@@ -470,6 +492,9 @@ export interface NewsEstimate {
   batchMs: number;
   baseMs: number;
   briefMs: number;
+  /** Measured over real updates (only new stories are read and briefed); null until one has run */
+  tokensPerUpdate?: number | null;
+  updateMs?: number | null;
 }
 
 export interface NewsEngine {
@@ -521,7 +546,18 @@ export interface ScheduleSnapshot {
   info: {
     watchlist: { interval: number; intervals: number[]; count: number; limit: number; engine: WatchEngine; estimate: { tokensPerUpdate: number; measured: boolean; updateMs: number }; resume: number };
     screener: { interval: number; intervals: number[]; boardSize: number; boardSizes: number[]; movers: number | null; engine: ScreenerEngine; estimate: ScreenerEstimate; lastFinishedAt: number; resume: number };
-    news: { interval: number; intervals: number[]; storyCount: number; storyCounts: number[]; engine: NewsEngine; estimate: NewsEstimate; lastFinishedAt: number; resume: number };
+    news: {
+      interval: number;
+      intervals: number[];
+      storyCount: number;
+      storyCounts: number[];
+      engine: NewsEngine;
+      estimate: NewsEstimate;
+      lastFinishedAt: number;
+      resume: number;
+      /** The daily edition's settings and how today's went */
+      edition: NewsEdition & { times: number[]; refreshMs: number; lastAt: number; status: "ready" | "none" | "pending" | null; title: string | null; error: string | null; running: boolean };
+    };
   };
   /** Tokens used today */
   today: number;
@@ -535,6 +571,8 @@ export interface JobSchedulePatch {
   interval?: number;
   boardSize?: number;
   storyCount?: number;
+  /** News only: the daily edition */
+  edition?: Partial<NewsEdition>;
 }
 
 export interface SchedulePatch {
@@ -542,4 +580,21 @@ export interface SchedulePatch {
   dailyTokenLimit?: number;
   background?: boolean;
   jobs?: Partial<Record<JobKey, JobSchedulePatch>>;
+}
+
+/** The day's newsflash: the big news since the last visit, written up by Legend */
+export interface Newsflash {
+  title: string;
+  summary: string;
+  mood: NewsBriefing["mood"] | null;
+  /** Hottest first, in Legend's order; each with its article's picture when Legend has read it */
+  stories: (MarketStory & { image: string | null; brief: Pick<StoryRead, "summary" | "points" | "stocks" | "context"> | null })[];
+  /** When it was written */
+  at: number;
+  /** The last visit it covers (ms) */
+  since: number;
+  /** since: news since the last visit; recent: nothing big since then, so the last day's big news */
+  window: "since" | "recent";
+  model: string | null;
+  tokens: { total?: number } | null;
 }

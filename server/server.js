@@ -202,6 +202,11 @@ app.delete("/watchlist/:symbol", (req, res) => {
   res.status(watchlist.remove(req.params.symbol) ? 204 : 404).end();
 });
 
+// Developer option: start a page over (each job keeps its settings)
+app.post("/watchlist/reset", (req, res) => res.status(watchlist.reset() ? 202 : 409).end());
+app.post("/screener/reset", (req, res) => res.status(screener.reset() ? 202 : 409).end());
+app.post("/market-news/reset", (req, res) => res.status(marketNews.reset() ? 202 : 409).end());
+
 app.post("/watchlist/:symbol/refresh", (req, res) => {
   res.status(watchlist.refresh(req.params.symbol) ? 202 : 404).end();
 });
@@ -241,6 +246,16 @@ app.post("/market-news/story/:id/read", async (req, res) => {
   } catch (err) {
     console.error("Market news: story read failed:", err.message);
     res.status(err.status || 502).json({ error: err.message });
+  }
+});
+// Newsflash: the big news since the last visit, shown the first time the app is opened each day
+app.get("/market-news/newsflash", async (req, res) => {
+  try {
+    const result = await marketNews.newsflash(req.query.since);
+    res.status(result.status === "pending" ? 202 : 200).json(result);
+  } catch (err) {
+    console.error("Newsflash failed:", err.message);
+    res.status(500).json({ error: err.message });
   }
 });
 app.put("/market-news/settings", (req, res) => {
@@ -302,6 +317,7 @@ app.put("/schedule", (req, res) => {
       if (patch.interval !== undefined) change.interval = Number(patch.interval);
       if (key === "screener" && patch.boardSize !== undefined) change.boardSize = patch.boardSize;
       if (key === "news" && patch.storyCount !== undefined) change.storyCount = patch.storyCount;
+      if (key === "news" && patch.edition !== undefined) change.edition = patch.edition;
       if (Object.keys(change).length) job.module.updateSettings(change);
     }
     schedule.update({ ...body, jobs });

@@ -8,6 +8,8 @@ export interface AnalyzeResponse {
   fullName: string;
   currentPrice: number;
   lastClose: number;
+  /** When the price was set (ISO): the trading day the move belongs to */
+  sessionAt: string | null;
   currentVolume: number;
   averageVolume: number;
   float: number;

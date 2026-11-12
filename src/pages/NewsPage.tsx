@@ -1,8 +1,11 @@
 import { memo, useEffect, useLayoutEffect, useRef, useState, type Ref } from "react";
 import { sfx } from "../audio/sfx";
+import { DevActionButton, DevResetButton } from "../components/DevResetButton";
+import { AgeChip, StaleBanner } from "../components/Freshness";
 import { JobStatusChip } from "../components/JobStatusChip";
 import { Favicon, ImpactCard, StoryReader } from "../components/StoryReader";
-import { isKept, MOOD_LABELS, NEWS_CATEGORY_LABELS, type MarketNews } from "../lib/marketNews";
+import { freshness, stampLabel, whenLabel } from "../lib/freshness";
+import { isKept, MOOD_LABELS, NEWS_CATEGORY_LABELS, updateNewsNow, type MarketNews } from "../lib/marketNews";
 import type { MarketStory, NewsTicker, PulseQuote } from "../lib/types";
 import { agoLabel, useNow } from "../lib/watchlist";
 import { Button } from "../ui/Button";
@@ -16,12 +19,17 @@ interface NewsPageProps {
   screenRef: Ref<HTMLElement>;
   active: boolean;
   news: MarketNews;
+  readingStory: MarketStory | null;
+  onOpenStory: (story: MarketStory) => void;
+  onCloseStory: () => void;
   /** Run a full scan of a stock named in the news */
   onScan: (symbol: string) => void;
   /** Scans are blocked while one is running */
   scanBusy: boolean;
   /** Open the news job's settings in the Update Schedule */
   onOpenSchedule: () => void;
+  /** Developer option: show the newsflash now */
+  onDevNewsflash: () => void;
 }
 
 type Tab = "top" | "movers" | "latest";
@@ -96,6 +104,8 @@ const StoryRow = memo(function StoryRow({
   const ai = story.ai!;
   const at = Date.parse(story.publishedAt);
   const fresh = now - at < 3600_000;
+  // Over a day old: the date is spelled out in orange so it isn't read as today's news
+  const dated = now - at >= 86_400_000;
   return (
     <li className={`nrow is-${ai.impact}${first ? " is-first" : ""}`}>
       <button type="button" className="nrow__open" aria-label={`Read: ${story.title}`} onClick={() => onOpen(story)} />
@@ -105,7 +115,10 @@ const StoryRow = memo(function StoryRow({
         <span className="nrow__meta">
           <Favicon domain={story.domain} />
           <span className="nrow__publisher">{story.publisher.toUpperCase()}</span>
-          <span className={`nrow__age${fresh ? " is-fresh" : ""}`}>{fresh ? "NEW · " : ""}{agoLabel(at, now)}</span>
+          <span className={`nrow__age${fresh ? " is-fresh" : ""}${dated ? " is-dated" : ""}`} title={new Date(at).toLocaleString()}>
+            {fresh ? "NEW · " : ""}
+            {agoLabel(at, now)} · {stampLabel(at, now)}
+          </span>
           <span className="nrow__tag">{NEWS_CATEGORY_LABELS[ai.category] ?? "NEWS"}</span>
           {story.coverage > 1 && (
             <span className="nrow__tag is-coverage" title={story.outlets.join(", ")}>
@@ -172,7 +185,7 @@ function Briefing({ news, now }: { news: MarketNews; now: number }) {
       <div className="nbrief__head">
         <LegendEmblem size={30} working={news.engine.state === "reading" && news.engine.step === "LEGEND IS WRITING THE BRIEFING"} />
         <span>LEGEND'S BRIEFING</span>
-        <span className="nbrief__ago">{agoLabel(b.at, now)}</span>
+        <span className={`nbrief__ago is-${freshness(b.at, now, "news")}`}>{whenLabel(b.at, now)}</span>
       </div>
       <div className="nbrief__mood">
         <span className="nbrief__mood-tag">MARKET MOOD</span>
@@ -205,10 +218,9 @@ function Briefing({ news, now }: { news: MarketNews; now: number }) {
 }
 
 /** Market news: the day's headlines read by Legend, laid out like the game's event screens. */
-export function NewsPage({ screenRef, active, news, onScan, scanBusy, onOpenSchedule }: NewsPageProps) {
+export function NewsPage({ screenRef, active, news, readingStory: open, onOpenStory, onCloseStory, onScan, scanBusy, onOpenSchedule, onDevNewsflash }: NewsPageProps) {
   const now = useNow(5000, active);
   const [tab, setTab] = useState<Tab>("top");
-  const [open, setOpen] = useState<MarketStory | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const feedScroll = useRef(0);
   const { engine, settings, stats, connected, clockOffset } = news;
@@ -240,11 +252,11 @@ export function NewsPage({ screenRef, active, news, onScan, scanBusy, onOpenSche
   const openStory = (story: MarketStory) => {
     sfx.play("tap");
     feedScroll.current = panelRef.current?.scrollTop ?? 0;
-    setOpen(story);
+    onOpenStory(story);
   };
   const closeStory = () => {
     sfx.play("tap");
-    setOpen(null);
+    onCloseStory();
   };
   useLayoutEffect(() => {
     const panel = panelRef.current;
@@ -267,7 +279,7 @@ export function NewsPage({ screenRef, active, news, onScan, scanBusy, onOpenSche
     const h = stats.hidden;
     const left = [h.promo && `${h.promo} PROMOS / CLICKBAIT`, h.stale && `${h.stale} OLD NEWS`, h.offtopic + h.minor && `${h.offtopic + h.minor} NOT WORTH IT`].filter(Boolean);
     meta =
-      (stats.finishedAt ? `UPDATED ${agoLabel(stats.finishedAt, serverNow)} · ` : "") +
+      (stats.finishedAt ? `UPDATED ${whenLabel(stats.finishedAt, serverNow)} · ` : "") +
       `${stats.gathered} HEADLINES FROM ${sources || SOURCE_COUNT} SOURCES · ${stats.clustered} STORIES · LEGEND READ THE ${stats.read} HOTTEST AND KEPT ${stats.kept}` +
       (left.length ? `, LEFT OFF ${left.join(", ")}` : "") +
       (busy && unread > 0 ? ` · READING ${unread} MORE` : "") +
@@ -297,6 +309,7 @@ export function NewsPage({ screenRef, active, news, onScan, scanBusy, onOpenSche
                 active={active}
                 onOpen={onOpenSchedule}
               />
+              <AgeChip at={stats?.finishedAt} now={serverNow} kind="news" />
               <Reveal kind="panel" className="mp__legend">
                 <LegendEmblem size={22} />
                 <span>{stats ? `${kept.length} STORIES · ${stats.read} READ` : "LEGEND"}</span>
@@ -305,6 +318,8 @@ export function NewsPage({ screenRef, active, news, onScan, scanBusy, onOpenSche
                 <span className="mp__aplus-tag">HIGH IMPACT</span>
                 <span className="mp__aplus-value">{high}</span>
               </Reveal>
+              <DevResetButton path="/market-news/reset" what="the stories, Legend's reads, the briefing and every story brief" />
+              <DevActionButton label="NEWSFLASH" title="Developer option: show the newsflash now (the last day's big news)" onClick={onDevNewsflash} />
             </div>
           </div>
 
@@ -321,7 +336,7 @@ export function NewsPage({ screenRef, active, news, onScan, scanBusy, onOpenSche
                     if (tab === id && !open) return;
                     sfx.play("tap");
                     setTab(id);
-                    setOpen(null);
+                    if (open) onCloseStory();
                   }}
                 >
                   {label}
@@ -330,6 +345,15 @@ export function NewsPage({ screenRef, active, news, onScan, scanBusy, onOpenSche
             </div>
           </div>
         </header>
+
+        <StaleBanner
+          at={stats?.finishedAt}
+          now={serverNow}
+          kind="news"
+          busy={busy}
+          risk="MARKET NEWS MOVES FAST; THESE STORIES, THEIR STOCKS' MOVES AND LEGEND'S BRIEFING MAY BE OUT OF DATE"
+          onUpdate={() => void updateNewsNow()}
+        />
 
         <Reveal kind="slide" wash="none" className={`mp__panel npanel${reading ? " is-reading" : ""}`} ref={panelRef}>
           {reading ? (
@@ -343,7 +367,7 @@ export function NewsPage({ screenRef, active, news, onScan, scanBusy, onOpenSche
                   ))}
                 </ul>
               )}
-              <div className="nlayout">
+              <div className={`nlayout${freshness(stats?.finishedAt, serverNow, "news") === "old" && !busy ? " is-old-data" : ""}`}>
                 <div className="nfeed-wrap">
                   {meta && (
                     <p className="sboard__meta nmeta" title={meta}>

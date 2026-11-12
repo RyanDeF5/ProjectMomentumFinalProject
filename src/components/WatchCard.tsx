@@ -2,6 +2,7 @@ import { useState } from "react";
 import { sfx } from "../audio/sfx";
 import { faviconUrl } from "../lib/api";
 import type { WatchItem } from "../lib/types";
+import { freshness, stampLabel, whenLabel } from "../lib/freshness";
 import { GOLD_STARS, agoLabel, watchAlert, watchChange, watchClass, watchScore, watchStars, watchTrend } from "../lib/watchlist";
 import { Diamond } from "../ui/Diamond";
 import { Glint } from "../ui/Glint";
@@ -46,7 +47,11 @@ export function WatchCard({ item, now, onOpen, onRefresh, onRemove }: WatchCardP
 
   // 4+ star stocks get the gold card the game gives maxed cars; everything else is a regular car
   const gold = stars >= GOLD_STARS;
-  const classes = ["wcard", gold && "is-gold", alert && "is-alert", item.updating && "is-updating", pending && "is-pending"].filter(Boolean).join(" ");
+  // How old the card's data is: the time turns orange, then pink, and old cards dim
+  const age = item.updating || pending ? "fresh" : freshness(item.updatedAt, now, "stock");
+  const classes = ["wcard", gold && "is-gold", alert && "is-alert", item.updating && "is-updating", pending && "is-pending", age !== "fresh" && `is-${age}`]
+    .filter(Boolean)
+    .join(" ");
 
   return (
     <article className={classes} aria-label={`${item.symbol}, score ${score ?? "pending"}`}>
@@ -93,7 +98,9 @@ export function WatchCard({ item, now, onOpen, onRefresh, onRemove }: WatchCardP
             <span className={`wcard__change${change === null ? "" : up ? " is-up" : " is-down"}`}>
               {change === null ? "--" : `${up ? "▲" : "▼"} ${Math.abs(change).toFixed(2)}%`}
             </span>
-            <span className="wcard__ago">{item.updating ? "UPDATING" : agoLabel(item.updatedAt, now)}</span>
+            <span className="wcard__ago" title={item.updatedAt ? `Updated ${stampLabel(item.updatedAt, now)}` : undefined}>
+              {item.updating ? "UPDATING" : age === "stale" || age === "old" ? `! ${whenLabel(item.updatedAt, now)}` : agoLabel(item.updatedAt, now)}
+            </span>
           </span>
 
           {trend !== 0 && !item.updating && (

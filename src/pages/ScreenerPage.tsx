@@ -1,7 +1,8 @@
 import { memo, useState, type Ref } from "react";
 import { sfx } from "../audio/sfx";
+import { lastTradingDay, moveDayLabel } from "../lib/clock";
 import { compactFormatter } from "../lib/numbers";
-import { CATALYST_LABELS, newestStory, type Screener } from "../lib/screener";
+import { CATALYST_LABELS, boardDataAt, newestStory, scanNow, type Screener } from "../lib/screener";
 import type { ScreenerEntry } from "../lib/types";
 import { agoLabel, useNow } from "../lib/watchlist";
 import { Button } from "../ui/Button";
@@ -11,7 +12,10 @@ import { LegendEmblem } from "../ui/LegendEmblem";
 import { Reveal } from "../ui/Reveal";
 import { RevealText } from "../ui/RevealText";
 import { faviconUrl } from "../lib/api";
+import { DevResetButton } from "../components/DevResetButton";
 import { JobStatusChip } from "../components/JobStatusChip";
+import { AgeChip, StaleBanner } from "../components/Freshness";
+import { freshness, stampLabel, whenLabel } from "../lib/freshness";
 
 interface ScreenerPageProps {
   screenRef: Ref<HTMLElement>;
@@ -28,7 +32,7 @@ type Tab = "board" | "criteria";
 /** "12M AGO" from a story's publish time. */
 function storyAge(publishedAt: string, now: number): string {
   const at = Date.parse(publishedAt);
-  return Number.isFinite(at) ? agoLabel(at, now) : "";
+  return Number.isFinite(at) ? `${agoLabel(at, now)} · ${stampLabel(at, now)}` : "";
 }
 
 function Logo({ entry }: { entry: ScreenerEntry }) {
@@ -139,7 +143,9 @@ const BoardRow = memo(function BoardRow({
           </span>
           {entry.ai && <span className="srow__info" aria-hidden>i</span>}
         </span>
-        <span className="srow__ago">{grading ? "RE-GRADING…" : entry.analyzedAt ? `GRADED ${agoLabel(entry.analyzedAt, now)}` : ""}</span>
+        <span className={`srow__ago is-${freshness(entry.analyzedAt, now, "screener")}`} title={entry.analyzedAt ? `Graded ${new Date(entry.analyzedAt).toLocaleString()}` : undefined}>
+          {grading ? "RE-GRADING…" : entry.analyzedAt ? `GRADED ${agoLabel(entry.analyzedAt, now)}` : ""}
+        </span>
         {top && <Glint idle />}
       </button>
     </li>
@@ -195,6 +201,8 @@ export function ScreenerPage({ screenRef, active, screener, onOpen, onOpenSchedu
   const busy = engine.state === "scanning" || engine.state === "analyzing" || engine.state === "waiting";
   const serverNow = now - clockOffset;
   const grading = engine.state === "analyzing" ? engine.symbol : null;
+  // When the board's prices are from (ahead of the update's finish while one is filling it in)
+  const dataAt = boardDataAt(screener);
 
   // Only the setups worth a look are shown (A+ to C); F grades and stocks Legend hasn't graded yet
   // are just counted
@@ -228,6 +236,7 @@ export function ScreenerPage({ screenRef, active, screener, onOpen, onOpenSchedu
                 active={active}
                 onOpen={onOpenSchedule}
               />
+              <AgeChip at={dataAt} now={serverNow} kind="screener" />
               <Reveal kind="panel" className="mp__legend">
                 <LegendEmblem size={22} />
                 <span>{board.length ? `${ranked.length} SETUP${ranked.length === 1 ? "" : "S"} · ${board.length} CHECKED` : "LEGEND"}</span>
@@ -236,6 +245,7 @@ export function ScreenerPage({ screenRef, active, screener, onOpen, onOpenSchedu
                 <span className="mp__aplus-tag">A+/A</span>
                 <span className="mp__aplus-value">{topSetups}</span>
               </Reveal>
+              <DevResetButton path="/screener/reset" what="the board and every remembered grade" />
             </div>
           </div>
 
@@ -266,6 +276,17 @@ export function ScreenerPage({ screenRef, active, screener, onOpen, onOpenSchedu
           </div>
         </header>
 
+        {tab === "board" && (
+          <StaleBanner
+            at={dataAt}
+            now={serverNow}
+            kind="screener"
+            busy={busy}
+            risk="MOVERS, PRICES AND GRADES CHANGE FAST; THESE SETUPS MAY HAVE FADED OR REVERSED"
+            onUpdate={() => void scanNow()}
+          />
+        )}
+
         <Reveal kind="slide" wash="none" className="mp__panel">
           {tab === "criteria" ? (
             <Criteria screener={screener} />
@@ -273,16 +294,16 @@ export function ScreenerPage({ screenRef, active, screener, onOpen, onOpenSchedu
             <>
               <div className="sboard__key" aria-hidden>
                 <span>RANK</span>
-                <span>STOCK · PRICE · TODAY</span>
+                <span>STOCK · PRICE · {moveDayLabel(dataAt ? lastTradingDay(new Date(dataAt)).getTime() : null).replace(/^ON /, "")}</span>
                 <span />
                 <span>THE FIVE PILLARS (LIME = PASSED)</span>
                 <span />
                 <span>LEGEND'S GRADE · SCORE · NEWEST STORY</span>
               </div>
-              <ul className="sboard">
+              <ul className={`sboard${freshness(dataAt, serverNow, "screener") === "old" && !busy ? " is-old-data" : ""}`}>
                 {stats && (
                   <li className="sboard__meta">
-                    {stats.finishedAt ? `UPDATED ${agoLabel(stats.finishedAt, serverNow)} · ` : ""}
+                    {dataAt ? `${busy ? "PRICES FROM" : "UPDATED"} ${whenLabel(dataAt, serverNow)} · ` : ""}
                     {stats.candidates} STOCKS SCANNED · {stats.movers} MOVERS · {checked}. RANKED BY GRADE, THEN SCORE · ▲▼ = RANK CHANGE SINCE THE LAST UPDATE · TAP A
                     STOCK FOR LEGEND'S FULL READ
                   </li>

@@ -1,16 +1,19 @@
+import { isAppActive } from "./lib/activity";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { enterScreen, enterTopBar, exitScreen, exitTopBar, fadeScreen } from "./animation/a9";
+import { music } from "./audio/music";
 import { sfx, type SfxName } from "./audio/sfx";
 import type { LegendState } from "./components/LegendPanel";
 import { ModeBar } from "./components/ModeBar";
+import { Newsflash } from "./components/Newsflash";
 import { Notifications } from "./components/Notifications";
 import { TopBar } from "./components/TopBar";
 import { analyzeWithLegend, exampleLegendAnalysis, fetchNews, fetchStockData, fetchTokenUsage } from "./lib/api";
 import { marketStateNow, useMarketState } from "./lib/clock";
 import { markTitleScreenSeen, shouldShowTitleScreen } from "./lib/settings";
 import { openStream } from "./lib/stream";
-import type { NewsItem, ScreenerEntry, StockData, TokenUsage, WatchItem } from "./lib/types";
+import type { MarketStory, NewsItem, Newsflash as NewsflashData, ScreenerEntry, StockData, TokenUsage, WatchItem } from "./lib/types";
 import { useConnection } from "./lib/connection";
 import type { TopJob } from "./lib/jobProgress";
 import { addToWatchlist, refreshWatchItem, removeFromWatchlist, updateWatchSettings, useWatchlist } from "./lib/watchlist";
@@ -30,8 +33,18 @@ import { Splash } from "./pages/Splash";
 import { StartPage } from "./pages/StartPage";
 import { SummaryPage } from "./pages/SummaryPage";
 import { Dialog } from "./ui/Dialog";
+import { NavigationHistory } from "./lib/navigationHistory";
+import { fetchNewsflash, lastVisit, markNewsflashSeen, newsflashDue, trackVisits } from "./lib/newsflash";
 
 type Screen = "start" | "loading" | "summary" | "settings" | "tokens" | "watchlist" | "screener" | "news" | "schedule";
+
+interface NavigationEntry {
+  screen: Exclude<Screen, "loading">;
+  story: MarketStory | null;
+  scheduleView: ScheduleView;
+  summary: { stock: StockData; legend: LegendState; news: NewsState; run: number; from: Screen };
+  overlayFrom: Screen;
+}
 
 // The bottom mode bar belongs to the home screen and the mode screens: it stays put while you move
 // between them, and steps aside on every other screen
@@ -44,6 +57,8 @@ const STEP_DONE_PAUSE_MS = 450;
 const LOADING_FINALE_MS = 1650;
 // The counter is pushed live; this only catches the day rolling over with nothing spent
 const USAGE_REFRESH_MS = 5 * 60_000;
+// The newsflash is asked for again this long after a failed request
+const NEWSFLASH_RETRY_MS = 60_000;
 
 const placeholderStock: StockData = {
   symbol: "STCK",
@@ -64,6 +79,8 @@ export default function App() {
   // Only the session (it changes a few times a day): the clock itself lives in the components that show it
   const marketState = useMarketState();
 
+  const history = useRef(new NavigationHistory<NavigationEntry>(30));
+  const [readingStory, setReadingStory] = useState<MarketStory | null>(null);
   const [screen, setScreen] = useState<Screen>("start");
   const [showSplash, setShowSplash] = useState(showTitleScreenOnLoad);
   const [buyButtonsEnabled, setBuyButtonsEnabled] = useState(true);
@@ -85,6 +102,12 @@ export default function App() {
   const [usageError, setUsageError] = useState(false);
   const [error, setError] = useState<{ title: string; message: string; retry?: () => void } | null>(null);
   const [scheduleView, setScheduleView] = useState<ScheduleView>("overview");
+  // The day's newsflash: fetched once the app is up, shown on the home screen
+  const [flash, setFlash] = useState<NewsflashData | null>(null);
+  const [flashOpen, setFlashOpen] = useState(false);
+  const [flashDue, setFlashDue] = useState(newsflashDue);
+  const [flashAttempt, setFlashAttempt] = useState(0);
+  const flashAsking = useRef(false);
 
   const topBarRef = useRef<HTMLElement>(null);
   const screenRefs = {
@@ -104,7 +127,7 @@ export default function App() {
   const summaryFrom = useRef<Screen>("start");
   const screenRef = useRef<Screen>("start");
   const navQueue = useRef<Promise<void>>(Promise.resolve());
-  const queuedTarget = useRef<Screen | null>(null);
+  const queuedTarget = useRef<Screen | "back" | null>(null);
   const legendRequestRef = useRef(0);
 
   useEffect(() => sfx.preload(), []);
@@ -126,6 +149,7 @@ export default function App() {
   }, [dryRun]);
 
   function refreshUsage() {
+    if (!isAppActive()) return;
     fetchTokenUsage()
       .then((next) => {
         setUsage(next);
@@ -158,6 +182,74 @@ export default function App() {
     };
   }, []);
 
+  // The last visit is kept up to date while the app is open, for the next day's newsflash
+  useEffect(() => trackVisits(), []);
+
+  // Newsflash: the first time the app is opened each day, the big news since the last visit. Asked for
+  // once the app is up; when the server is still bringing the news up to date, asked again as soon
+  // as that update lands. Nothing big: nothing shows, and it isn't asked for again today.
+  const newsFinishedAt = marketNews.stats?.finishedAt ?? 0;
+  useEffect(() => {
+    // Asked for while the title screen is still up, so it's in hand when the home screen appears
+    if (!flashDue || flash || !marketNews.connected || flashAsking.current) return;
+    flashAsking.current = true;
+    fetchNewsflash(lastVisit)
+      .then((result) => {
+        if (result.status === "ready") setFlash(result.flash);
+        else if (result.status === "none") {
+          markNewsflashSeen();
+          setFlashDue(false);
+        }
+      })
+      .catch((err) => {
+        console.error("Newsflash unavailable:", err);
+        window.setTimeout(() => setFlashAttempt((n) => n + 1), NEWSFLASH_RETRY_MS);
+      })
+      .finally(() => {
+        flashAsking.current = false;
+      });
+  }, [flashDue, flash, marketNews.connected, newsFinishedAt, flashAttempt]);
+
+  // It pops up on the home screen, like the game's event banners, never over a scan
+  useEffect(() => {
+    if (!flash || flashOpen || !flashDue || showSplash || screen !== "start" || scanInProgress || error) return;
+    const timer = window.setTimeout(() => {
+      markNewsflashSeen();
+      setFlashDue(false);
+      setFlashOpen(true);
+      sfx.play("switch");
+    }, 700);
+    return () => window.clearTimeout(timer);
+  }, [flash, flashOpen, flashDue, showSplash, screen, scanInProgress, error]);
+
+  function closeNewsflash() {
+    setFlashOpen(false);
+    setFlash(null);
+  }
+
+  /** Developer option: show the newsflash now, covering the last day */
+  function showNewsflashNow() {
+    fetchNewsflash(Date.now() - 24 * 3600_000)
+      .then((result) => {
+        if (result.status === "ready") {
+          setFlash(result.flash);
+          setFlashOpen(true);
+          sfx.play("switch");
+        } else {
+          setError({
+            title: "NEWSFLASH",
+            message: result.status === "none" ? "NO BIG NEWS IN THE LAST DAY, SO THERE'S NO NEWSFLASH." : "THE NEWS IS BEING UPDATED FIRST.\nTRY AGAIN WHEN THE UPDATE FINISHES.",
+          });
+        }
+      })
+      .catch(() => setError({ title: "NEWSFLASH", message: "THE NEWSFLASH COULDN'T BE LOADED." }));
+  }
+
+  /** READ on a newsflash card: the story in the news reader */
+  function readFlashStory(story: MarketStory) {
+    void navigate("news", "switch").then(() => openStory(story));
+  }
+
   // First screen builds in once the splash is gone (or straight away when it was already seen)
   useLayoutEffect(() => {
     if (showSplash) return;
@@ -166,17 +258,58 @@ export default function App() {
     // Only on the splash closing; later screens are entered by navigate()
   }, [showSplash]);
 
+  function currentEntry(): NavigationEntry {
+    return {
+      screen: screenRef.current === "loading" ? "start" : screenRef.current,
+      story: readingStory,
+      scheduleView,
+      summary: { stock, legend, news, run: summaryRun, from: summaryFrom.current },
+      overlayFrom: returnTo.current,
+    };
+  }
+
+  function restoreEntry(entry: NavigationEntry) {
+    setReadingStory(entry.story);
+    setScheduleView(entry.scheduleView);
+    returnTo.current = entry.overlayFrom;
+    if (entry.screen === "summary") {
+      legendRequestRef.current++;
+      setStock(entry.summary.stock);
+      setLegend(entry.summary.legend);
+      setNews(entry.summary.news);
+      setSummaryRun(entry.summary.run);
+      summaryFrom.current = entry.summary.from;
+    }
+  }
+
+  function openStory(story: MarketStory) {
+    if (queuedTarget.current || readingStory?.id === story.id) return;
+    history.current.push(currentEntry());
+    setReadingStory(story);
+  }
+
   /** Asphalt-style screen change: wash out, collapse the top bar, cut, rebuild. Calls are queued. */
-  function navigate(target: Screen, sound?: SfxName): Promise<void> {
-    if (queuedTarget.current === target) return navQueue.current;
-    queuedTarget.current = target;
+  function navigate(destination: Screen | "back", sound?: SfxName, reset = false): Promise<void> {
+    if (queuedTarget.current === destination) return navQueue.current;
+    queuedTarget.current = destination;
+    const previous = currentEntry();
 
     navQueue.current = navQueue.current.then(async () => {
       const from = screenRef.current;
+      const returning = destination === "back" ? history.current.pop() : undefined;
+      const target = destination === "back" ? (returning?.screen ?? "start") : destination;
+      if (reset) history.current.clear();
       if (from === target) {
+        if (returning) flushSync(() => restoreEntry(returning));
         queuedTarget.current = null;
         return;
       }
+      // Loading is transient: its origin is recorded on entry, never the loading screen itself.
+      if (destination !== "back" && !reset && from !== "loading") {
+        history.current.push({ ...previous, screen: from });
+      }
+      if (reset) setReadingStory(null);
+      if (target === "start") setBuyButtonsEnabled(true);
       if (sound) sfx.play(sound);
 
       // Leaving the bar's screens: it slides away with the old screen; it returns with the new one
@@ -196,6 +329,7 @@ export default function App() {
 
       screenRef.current = target;
       flushSync(() => {
+        if (returning) restoreEntry(returning);
         setLoadingDeparting(from === "loading");
         if (target === "loading") setModeBarShown(false);
         setScreen(target);
@@ -209,7 +343,7 @@ export default function App() {
 
       if (bar && target !== "loading") void (from === "loading" ? fadeScreen(bar, true, 650) : enterTopBar(bar));
       const toEl = screenRefs[target].current;
-      if (queuedTarget.current === target) queuedTarget.current = null;
+      if (queuedTarget.current === destination) queuedTarget.current = null;
       if (from === "loading") {
         // Keep the actual photo mounted over the results until the crossfade finishes.
         try {
@@ -258,6 +392,8 @@ export default function App() {
     const quoteDone = manual ? "skipped" : "done";
     setSteps({ quote: manual ? "skipped" : "active", news: "pending", legend: "pending" });
     const stopRace = sfx.play("race");
+    // The menu music fades out as the loading screen comes up, and back in with the results
+    music.duck(true);
     const toLoading = navigate("loading");
     const minimum = wait(MIN_LOADING_MS);
 
@@ -268,7 +404,8 @@ export default function App() {
       console.error("Failed to fetch stock data:", err);
       await toLoading;
       stopRace();
-      await navigate("start", "switch");
+      music.duck(false);
+      await navigate("back", "switch");
       setScanInProgress(false);
       setBuyButtonsEnabled(true);
       const code = err instanceof Error ? (err.message.match(/\d{3}/)?.[0] ?? "0") : "0";
@@ -303,11 +440,13 @@ export default function App() {
       setLoadingFinale(true);
       await wait(LOADING_FINALE_MS);
     }
-    setStock(stockData);
+    setStock({ ...stockData, asOf: stockData.asOf ?? Date.now() });
     setSummaryRun((run) => run + 1);
     // A stock scanned from the news returns there
     summaryFrom.current = startedFrom === "news" ? "news" : "start";
-    await navigate("summary");
+    const toSummary = navigate("summary");
+    music.duck(false);
+    await toSummary;
     // Pick up the tokens this scan used now that the top bar is back, so the counter rolls up in view
     setScanInProgress(false);
     if (analyzed) refreshUsage();
@@ -326,6 +465,7 @@ export default function App() {
         fullName: data.fullName,
         currentPrice: data.currentPrice,
         lastClose: data.lastClose,
+        sessionAt: data.sessionAt,
         volume: state === "PRE-MARKET" && Number.isFinite(volumeFromField) ? volumeFromField : data.currentVolume,
         averageVolume: data.averageVolume,
         float: data.float,
@@ -337,7 +477,7 @@ export default function App() {
   function openWatchItem(item: WatchItem) {
     if (!item.stock || !item.legend) return;
     legendRequestRef.current++;
-    setStock(item.stock);
+    setStock({ ...item.stock, asOf: item.updatedAt });
     setLegend({ status: "done", response: item.legend });
     setNews({ status: "done", items: item.news });
     setSummaryRun((run) => run + 1);
@@ -357,6 +497,8 @@ export default function App() {
       volume: entry.volume,
       averageVolume: entry.avgVolume,
       float: entry.float,
+      // Its price is from the update that put it on the board, even one still running
+      asOf: entry.quotedAt ?? screener.stats?.finishedAt ?? entry.analyzedAt,
     });
     setLegend({ status: "done", response: entry.ai });
     setNews({ status: "done", items: entry.news });
@@ -397,14 +539,11 @@ export default function App() {
   }
 
   function goBack() {
-    const target = screen === "settings" || screen === "tokens" ? returnTo.current : screen === "summary" ? summaryFrom.current : "start";
-    void navigate(target, "switch");
-    if (target === "start") setTimeout(() => setBuyButtonsEnabled(true), 1000);
+    void navigate("back", "switch");
   }
 
   function goHome() {
-    void navigate("start", "switch");
-    setTimeout(() => setBuyButtonsEnabled(true), 1000);
+    void navigate("start", "switch", true);
   }
 
   function openOverlayScreen(target: "settings" | "tokens") {
@@ -413,8 +552,7 @@ export default function App() {
     void navigate(target, "switch");
   }
 
-  // The background job for the top bar: the one belonging to this screen if it's running, else
-  // a screener update, else a watchlist update
+  // The background jobs running now, for the top bar (each with its own progress)
   const jobs: TopJob[] = [];
   if (screener.connected && ["scanning", "analyzing", "waiting"].includes(screener.engine.state)) {
     jobs.push({
@@ -447,7 +585,9 @@ export default function App() {
       clockOffset: marketNews.clockOffset,
     });
   }
-  const topJob = jobs.find((j) => j.source === screen) ?? jobs[0] ?? null;
+  // Always in the same order (screener, news, watchlist), so rows don't swap places as jobs come and go
+  const JOB_ORDER: TopJob["source"][] = ["screener", "news", "watchlist"];
+  jobs.sort((a, b) => JOB_ORDER.indexOf(a.source) - JOB_ORDER.indexOf(b.source));
 
   // Each job as it is right now, for the schedule screen
   const liveJobs: Record<JobKey, LiveJob> = {
@@ -495,7 +635,7 @@ export default function App() {
         garageCount={watchlist.connected ? watchlist.items.length : null}
         onGarage={screen === "watchlist" || scanInProgress ? undefined : openWatchlist}
         connection={connection}
-        job={screen === "loading" ? null : topJob}
+        jobs={screen === "loading" ? [] : jobs}
         onOpenJob={scanInProgress ? undefined : (source) => (source === screen ? undefined : openJob(source))}
       />
 
@@ -527,6 +667,7 @@ export default function App() {
           legend={legend}
           news={news}
           onBack={goBack}
+          onRescan={scanInProgress ? undefined : () => superCalculate(stock.symbol)}
           watch={{
             watched: watchlist.items.some((item) => item.symbol === stock.symbol),
             blocked:
@@ -549,7 +690,7 @@ export default function App() {
         />
         <WatchlistPage screenRef={screenRefs.watchlist} active={screen === "watchlist"} watchlist={watchlist} onOpenItem={openWatchItem} onOpenSchedule={() => openSchedule("watchlist")} />
         <ScreenerPage screenRef={screenRefs.screener} active={screen === "screener"} screener={screener} onOpen={openScreenerEntry} onOpenSchedule={() => openSchedule("screener")} />
-        <NewsPage screenRef={screenRefs.news} active={screen === "news"} news={marketNews} onScan={(symbol) => superCalculate(symbol)} scanBusy={scanInProgress} onOpenSchedule={() => openSchedule("news")} />
+        <NewsPage screenRef={screenRefs.news} active={screen === "news"} news={marketNews} readingStory={readingStory} onOpenStory={openStory} onCloseStory={goBack} onScan={(symbol) => superCalculate(symbol)} scanBusy={scanInProgress} onOpenSchedule={() => openSchedule("news")} onDevNewsflash={showNewsflashNow} />
         <SchedulePage screenRef={screenRefs.schedule} active={screen === "schedule"} dryRun={dryRun} live={liveJobs} onOpenJob={openJob} onUpdateNow={updateJobNow} view={scheduleView} onViewChange={setScheduleView} />
         <TokensPage screenRef={screenRefs.tokens} active={screen === "tokens"} usage={usage} error={usageError} />
         <SettingsPage screenRef={screenRefs.settings} active={screen === "settings"} dryRun={dryRun} onDryRunChange={setDryRun} />
@@ -576,6 +717,8 @@ export default function App() {
           }}
         />
       )}
+
+      {flash && flashOpen && <Newsflash flash={flash} onClose={closeNewsflash} onRead={readFlashStory} />}
 
       {error && (
         <Dialog title={error.title} onClose={() => setError(null)} action={error.retry && { label: "RETRY", onClick: error.retry }}>

@@ -15,7 +15,8 @@ import {
   sessionsLabel,
   useSchedule,
 } from "../lib/schedule";
-import type { HoursWindow, JobKey, JobSchedule, ScheduleSnapshot, SchedulePatch, SessionKey } from "../lib/types";
+import { whenLabel } from "../lib/freshness";
+import type { HoursWindow, JobKey, JobSchedule, NewsEdition, ScheduleSnapshot, SchedulePatch, SessionKey } from "../lib/types";
 import { agoLabel, useNow } from "../lib/watchlist";
 import { Button } from "../ui/Button";
 import { Diamond } from "../ui/Diamond";
@@ -215,6 +216,40 @@ function SessionPicker({ value, onChange }: { value: SessionKey[]; onChange: (ne
   );
 }
 
+type EditionInfo = ScheduleSnapshot["info"]["news"]["edition"];
+
+/** How today's edition stands, for the section's note. */
+function editionStatus(edition: EditionInfo, now: number): string {
+  if (!edition.enabled) return "OFF";
+  if (edition.running) return "UPDATING NOW";
+  const today = new Date(now);
+  const startAt = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime() + edition.minute * 60_000;
+  if (edition.lastAt >= startAt) return `${edition.status === "none" ? "NO BIG NEWS" : "READY"} · UPDATED ${whenLabel(edition.lastAt, now)}`;
+  if (edition.error) return "LAST TRY FAILED · TRYING AGAIN";
+  return now < startAt ? `NEXT AT ${clockLabel(edition.minute)}` : edition.lastAt ? `LAST ${whenLabel(edition.lastAt, now)}` : "NOT RUN YET";
+}
+
+/**
+ * The daily edition: from this time each morning, with no page open, the news is updated and the
+ * newsflash written, so it's waiting when the app is first opened that day.
+ */
+function EditionSection({ edition, now, onChange }: { edition: EditionInfo; now: number; onChange: (patch: Partial<NewsEdition>) => void }) {
+  const hours = Math.round(edition.refreshMs / 3_600_000);
+  return (
+    <Section title="DAILY NEWSFLASH" note={editionStatus(edition, now)}>
+      <Segmented label="DAILY NEWSFLASH" value={edition.enabled ? "on" : "off"} onChange={(v) => onChange({ enabled: v === "on" })} options={[...ON_OFF]} />
+      {edition.enabled && (
+        <Choices label="READY BY" options={edition.times.map((m) => ({ value: m, label: clockLabel(m) }))} value={edition.minute} onChange={(minute) => onChange({ minute })} />
+      )}
+      <div className="sched__fact">
+        FROM THIS TIME EACH DAY THE NEWS IS UPDATED AND THE NEWSFLASH WRITTEN WITH THE APP CLOSED, SO IT'S WAITING WHEN YOU FIRST OPEN IT. IT REFRESHES EVERY {hours} HOURS
+        UNTIL YOU DO (LAST AT 8:00 PM), AND RUNS EVEN WHILE AUTO UPDATE IS OFF. THE COMPUTER RUNNING THE SERVER HAS TO BE AWAKE; IF IT WAS ASLEEP, IT CATCHES UP ON
+        WAKING.
+      </div>
+    </Section>
+  );
+}
+
 /** A row of choices in the settings screen's boxy style, wrapping when there are many. */
 function Choices<T extends number>({ label, options, value, onChange }: { label: string; options: { value: T; label: string }[]; value: T; onChange: (v: T) => void }) {
   return (
@@ -362,6 +397,7 @@ function JobPanel({
             />
           </Section>
         )}
+        {key === "news" && <EditionSection edition={snap.info.news.edition} now={now - live.clockOffset} onChange={(edition) => change({ edition })} />}
         {key === "watchlist" && (
           <Section title="STOCKS" note="ADD OR REMOVE THEM ON THE WATCHLIST">
             <div className="sched__fact">
@@ -524,7 +560,7 @@ function Overview({ snap, live, now, dryRun, apply }: { snap: ScheduleSnapshot; 
             ]}
           />
         </Section>
-        <Section title="KEEP RUNNING WITH THE APP CLOSED" note={snap.background ? "THE SERVER UPDATES ON SCHEDULE EVEN WITH NO PAGE OPEN" : "UPDATES ONLY RUN WHILE THE APP IS OPEN"}>
+        <Section title="KEEP RUNNING WITH THE APP CLOSED" note={snap.background ? "THE SERVER UPDATES ON SCHEDULE EVEN WITH NO PAGE OPEN" : "UPDATES PAUSE WHEN YOU SWITCH TABS OR WINDOWS; RESUME WHEN YOU RETURN"}>
           <Segmented label="KEEP RUNNING" value={snap.background ? "on" : "off"} onChange={(v) => apply({ background: v === "on" })} options={[...ON_OFF]} />
         </Section>
         <Section title="DAILY TOKEN LIMIT" note="AUTO UPDATES STOP FOR THE DAY ONCE IT'S REACHED">
