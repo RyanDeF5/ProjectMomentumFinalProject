@@ -13,7 +13,7 @@ import { analyzeWithLegend, exampleLegendAnalysis, fetchNews, fetchStockData, fe
 import { marketStateNow, useMarketState } from "./lib/clock";
 import { markTitleScreenSeen, shouldShowTitleScreen } from "./lib/settings";
 import { openStream } from "./lib/stream";
-import type { MarketStory, NewsItem, Newsflash as NewsflashData, ScreenerEntry, StockData, TokenUsage, WatchItem } from "./lib/types";
+import type { LegendResponse, MarketStory, NewsItem, Newsflash as NewsflashData, ScreenerEntry, StockData, TokenUsage, WatchItem } from "./lib/types";
 import { useConnection } from "./lib/connection";
 import type { TopJob } from "./lib/jobProgress";
 import { addToWatchlist, refreshWatchItem, removeFromWatchlist, updateWatchSettings, useWatchlist } from "./lib/watchlist";
@@ -34,6 +34,8 @@ import { StartPage } from "./pages/StartPage";
 import { SummaryPage } from "./pages/SummaryPage";
 import { Dialog } from "./ui/Dialog";
 import { NavigationHistory } from "./lib/navigationHistory";
+import { addRecentScan, loadRecentScans, type RecentScan } from "./lib/recentScans";
+import { TabTitle } from "./components/TabTitle";
 import { fetchNewsflash, lastVisit, markNewsflashSeen, newsflashDue, trackVisits } from "./lib/newsflash";
 
 type Screen = "start" | "loading" | "summary" | "settings" | "tokens" | "watchlist" | "screener" | "news" | "schedule";
@@ -73,6 +75,20 @@ const placeholderStock: StockData = {
 // Decided once per page load (the restart flag is consumed on read)
 const showTitleScreenOnLoad = shouldShowTitleScreen();
 
+// A refresh comes back to the section that was open (the watchlist, screener, news or schedule),
+// remembered for the browser tab's session
+const SCREEN_KEY = "pm.screen";
+const RESTORABLE: ReadonlySet<string> = new Set(["watchlist", "screener", "news", "schedule"]);
+function readStoredScreen(): Screen {
+  try {
+    const stored = sessionStorage.getItem(SCREEN_KEY);
+    return stored && RESTORABLE.has(stored) ? (stored as Screen) : "start";
+  } catch {
+    return "start";
+  }
+}
+const screenOnLoad: Screen = showTitleScreenOnLoad ? "start" : readStoredScreen();
+
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export default function App() {
@@ -81,7 +97,7 @@ export default function App() {
 
   const history = useRef(new NavigationHistory<NavigationEntry>(30));
   const [readingStory, setReadingStory] = useState<MarketStory | null>(null);
-  const [screen, setScreen] = useState<Screen>("start");
+  const [screen, setScreen] = useState<Screen>(screenOnLoad);
   const [showSplash, setShowSplash] = useState(showTitleScreenOnLoad);
   const [buyButtonsEnabled, setBuyButtonsEnabled] = useState(true);
   const [scanInProgress, setScanInProgress] = useState(false);
@@ -108,6 +124,13 @@ export default function App() {
   const [flashDue, setFlashDue] = useState(newsflashDue);
   const [flashAttempt, setFlashAttempt] = useState(0);
   const flashAsking = useRef(false);
+  // The server is bringing the news up to date for the newsflash (it wasn't ready when the app opened)
+  const [flashPending, setFlashPending] = useState(false);
+  // The last few scans, kept on this device
+  const [recentScans, setRecentScans] = useState<RecentScan[]>(loadRecentScans);
+  // Each scan has a number; cancelling moves on, so the abandoned scan's later steps do nothing
+  const scanRun = useRef(0);
+  const stopScanSound = useRef<(() => void) | null>(null);
 
   const topBarRef = useRef<HTMLElement>(null);
   const screenRefs = {
@@ -125,7 +148,7 @@ export default function App() {
   const returnTo = useRef<Screen>("start");
   // Where the summary was opened from (a scan, the home watchlist or the watchlist screen)
   const summaryFrom = useRef<Screen>("start");
-  const screenRef = useRef<Screen>("start");
+  const screenRef = useRef<Screen>(screenOnLoad);
   const navQueue = useRef<Promise<void>>(Promise.resolve());
   const queuedTarget = useRef<Screen | "back" | null>(null);
   const legendRequestRef = useRef(0);
@@ -195,6 +218,8 @@ export default function App() {
     flashAsking.current = true;
     fetchNewsflash(lastVisit)
       .then((result) => {
+        // Not ready yet: the server has started gathering the news; asked again when that update lands
+        setFlashPending(result.status === "pending");
         if (result.status === "ready") setFlash(result.flash);
         else if (result.status === "none") {
           markNewsflashSeen();
@@ -210,9 +235,10 @@ export default function App() {
       });
   }, [flashDue, flash, marketNews.connected, newsFinishedAt, flashAttempt]);
 
-  // It pops up on the home screen, like the game's event banners, never over a scan
+  // It pops up like the game's event banners as soon as it's ready, never over a scan
   useEffect(() => {
-    if (!flash || flashOpen || !flashDue || showSplash || screen !== "start" || scanInProgress || error) return;
+    // Over whichever screen is open (it may have taken a minute to gather), but never over a scan
+    if (!flash || flashOpen || !flashDue || showSplash || screen === "loading" || scanInProgress || error) return;
     const timer = window.setTimeout(() => {
       markNewsflashSeen();
       setFlashDue(false);
@@ -227,7 +253,7 @@ export default function App() {
     setFlash(null);
   }
 
-  /** Developer option: show the newsflash now, covering the last day */
+  /** TODAY'S NEWSFLASH on the news page: show it again (the day's, or the last day's big news) */
   function showNewsflashNow() {
     fetchNewsflash(Date.now() - 24 * 3600_000)
       .then((result) => {
@@ -254,9 +280,20 @@ export default function App() {
   useLayoutEffect(() => {
     if (showSplash) return;
     if (topBarRef.current) void enterTopBar(topBarRef.current);
-    if (screenRefs.start.current) void enterScreen(screenRefs.start.current);
+    const first = screenRefs[screenRef.current].current;
+    if (first) void enterScreen(first);
     // Only on the splash closing; later screens are entered by navigate()
   }, [showSplash]);
+
+  // Remember the open section for a refresh (home clears it; the summary and settings keep the last one)
+  useEffect(() => {
+    try {
+      if (RESTORABLE.has(screen)) sessionStorage.setItem(SCREEN_KEY, screen);
+      else if (screen === "start") sessionStorage.removeItem(SCREEN_KEY);
+    } catch {
+      // Storage unavailable: a refresh opens the home screen
+    }
+  }, [screen]);
 
   function currentEntry(): NavigationEntry {
     return {
@@ -358,8 +395,8 @@ export default function App() {
     return navQueue.current;
   }
 
-  /** Run Legend on a stock. Resolves to whether it produced an analysis. */
-  async function runLegend(stockData: StockData, stories: NewsItem[]): Promise<boolean> {
+  /** Run Legend on a stock. Resolves to its analysis, or null when it failed. */
+  async function runLegend(stockData: StockData, stories: NewsItem[]): Promise<LegendResponse | null> {
     const requestId = ++legendRequestRef.current;
     setLegend({ status: "working" });
     try {
@@ -367,11 +404,11 @@ export default function App() {
         ? await exampleLegendAnalysis(stockData, marketStateNow(), stories)
         : await analyzeWithLegend(stockData, marketStateNow(), stories);
       if (requestId === legendRequestRef.current) setLegend({ status: "done", response });
-      return true;
+      return response;
     } catch (err) {
       console.error("Legend request failed:", err);
       if (requestId === legendRequestRef.current) setLegend({ status: "error" });
-      return false;
+      return null;
     }
   }
 
@@ -382,6 +419,9 @@ export default function App() {
    */
   async function scan(symbol: string, load: (() => Promise<StockData>) | StockData) {
     const startedFrom = screenRef.current;
+    // CANCEL on the loading screen moves the run number on; each later step checks it and stops
+    const run = ++scanRun.current;
+    const cancelled = () => run !== scanRun.current;
     setScanInProgress(true);
     setBuyButtonsEnabled(false);
     setLoadingSymbol(symbol.toUpperCase());
@@ -392,6 +432,7 @@ export default function App() {
     const quoteDone = manual ? "skipped" : "done";
     setSteps({ quote: manual ? "skipped" : "active", news: "pending", legend: "pending" });
     const stopRace = sfx.play("race");
+    stopScanSound.current = stopRace;
     // The menu music fades out as the loading screen comes up, and back in with the results
     music.duck(true);
     const toLoading = navigate("loading");
@@ -401,6 +442,7 @@ export default function App() {
     try {
       stockData = typeof load === "function" ? await load() : load;
     } catch (err) {
+      if (cancelled()) return;
       console.error("Failed to fetch stock data:", err);
       await toLoading;
       stopRace();
@@ -417,6 +459,7 @@ export default function App() {
       return;
     }
 
+    if (cancelled()) return;
     // Retrieval: recent news for Legend to read (and for the summary's news strip)
     setSteps({ quote: quoteDone, news: "active", legend: "pending" });
     let stories: NewsItem[] = [];
@@ -427,20 +470,30 @@ export default function App() {
       console.error("News search failed:", err);
       newsOk = false;
     }
+    if (cancelled()) return;
     setNews({ status: newsOk ? "done" : "error", items: stories });
 
     setSteps({ quote: quoteDone, news: newsOk ? "done" : "failed", legend: "active" });
-    const analyzed = await runLegend(stockData, stories);
+    const analysis = await runLegend(stockData, stories);
+    if (cancelled()) return;
+    const analyzed = analysis !== null;
     setSteps({ quote: quoteDone, news: newsOk ? "done" : "failed", legend: analyzed ? "done" : "failed" });
 
     // Let the completed steps register before the summary takes over
     await Promise.all([toLoading, minimum, wait(STEP_DONE_PAUSE_MS)]);
+    if (cancelled()) return;
+    // From here the scan is done and can no longer be cancelled
+    scanRun.current++;
+    stopScanSound.current = null;
     // Like the game before a race: the words fade and the exchange's photo fills the screen
     if (!manual && loadingExchangeRef.current) {
       setLoadingFinale(true);
       await wait(LOADING_FINALE_MS);
     }
-    setStock({ ...stockData, asOf: stockData.asOf ?? Date.now() });
+    const scannedAt = stockData.asOf ?? Date.now();
+    // Kept in the home screen's recent scans (manual entries aren't real stocks)
+    if (analysis && !manual) setRecentScans((list) => addRecentScan(list, { stock: { ...stockData, asOf: scannedAt }, legend: analysis, news: stories, at: scannedAt }));
+    setStock({ ...stockData, asOf: scannedAt });
     setSummaryRun((run) => run + 1);
     // A stock scanned from the news returns there
     summaryFrom.current = startedFrom === "news" ? "news" : "start";
@@ -450,6 +503,40 @@ export default function App() {
     // Pick up the tokens this scan used now that the top bar is back, so the counter rolls up in view
     setScanInProgress(false);
     if (analyzed) refreshUsage();
+  }
+
+  /** CANCEL on the loading screen: the scan is abandoned and the screen it started from comes back. */
+  function cancelScan() {
+    if (!scanInProgress || !stopScanSound.current) return;
+    scanRun.current++;
+    // Legend's answer, if it still arrives, is ignored (the server finishes the call on its own)
+    legendRequestRef.current++;
+    stopScanSound.current();
+    stopScanSound.current = null;
+    music.duck(false);
+    setLegend({ status: "idle" });
+    void navigate("back", "switch").then(() => {
+      setScanInProgress(false);
+      setBuyButtonsEnabled(true);
+    });
+  }
+
+  /** Open one of the recent scans as it was (the summary says how old it is and offers SCAN AGAIN). */
+  function openRecentScan(recent: RecentScan) {
+    legendRequestRef.current++;
+    setStock({ ...recent.stock, asOf: recent.at });
+    setLegend({ status: "done", response: recent.legend });
+    setNews({ status: "done", items: recent.news });
+    setSummaryRun((run) => run + 1);
+    summaryFrom.current = "start";
+    void navigate("summary", "switch");
+  }
+
+  /** UPDATE EVERYTHING on the home screen: the watchlist, the screener and the news, all now. */
+  function updateEverything() {
+    void scanNow().catch((err) => console.error("Screener update:", err));
+    void updateNewsNow().catch((err) => console.error("News update:", err));
+    watchlist.items.forEach((item) => void refreshWatchItem(item.symbol).catch((err) => console.error(`Watchlist update ${item.symbol}:`, err)));
   }
 
   /** Scan a stock. Before the open the volume comes from the form; without one, the quote's is used. */
@@ -552,6 +639,37 @@ export default function App() {
     void navigate(target, "switch");
   }
 
+  // Keyboard shortcuts: "/" jumps to the scan box, 1 to 5 open the five sections (in the mode bar's
+  // order). Never while typing, with a modifier held, during a scan or with a pop-up open.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey || e.repeat) return;
+      const el = e.target as HTMLElement | null;
+      if (el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))) return;
+      if (showSplash || scanInProgress || screen === "loading" || error || flashOpen || document.querySelector('[role="dialog"]')) return;
+      if (e.key === "/") {
+        e.preventDefault();
+        const focus = () => document.getElementById("superSymbol")?.focus();
+        if (screen === "start") focus();
+        else void navigate("start", "switch", true).then(focus);
+        return;
+      }
+      const open: Record<string, [Screen, () => void]> = {
+        "1": ["start", goHome],
+        "2": ["watchlist", openWatchlist],
+        "3": ["screener", openScreener],
+        "4": ["news", openNews],
+        "5": ["schedule", () => openSchedule("overview")],
+      };
+      const target = open[e.key];
+      if (!target || target[0] === screen) return;
+      e.preventDefault();
+      target[1]();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
   // The background jobs running now, for the top bar (each with its own progress)
   const jobs: TopJob[] = [];
   if (screener.connected && ["scanning", "analyzing", "waiting"].includes(screener.engine.state)) {
@@ -578,7 +696,8 @@ export default function App() {
   if (marketNews.connected && ["gathering", "reading", "waiting"].includes(marketNews.engine.state)) {
     jobs.push({
       source: "news",
-      label: "NEWS",
+      // Opened before the day's newsflash was ready: this update is gathering it
+      label: flashPending && flashDue ? "NEWSFLASH" : "NEWS",
       step: marketNews.engine.step ?? "UPDATING",
       progress: marketNews.engine.progress ?? null,
       held: marketNews.engine.state === "waiting",
@@ -649,6 +768,10 @@ export default function App() {
           onManualSubmit={(stockData) => void scan(stockData.symbol, stockData)}
           onSwitchPage={() => void navigate("summary", "switch")}
           onDryRunChange={setDryRun}
+          recentScans={recentScans}
+          onOpenRecentScan={openRecentScan}
+          onUpdateEverything={watchlist.connected && screener.connected && marketNews.connected ? updateEverything : undefined}
+          updatesRunning={jobs.length}
           lastScan={summaryRun > 0 ? { stock, legend } : null}
           onOpenLastScan={() => {
             summaryFrom.current = "start";
@@ -658,7 +781,7 @@ export default function App() {
           onOpenWatchItem={openWatchItem}
           onOpenWatchlist={openWatchlist}
         />
-        <LoadingPage screenRef={screenRefs.loading} active={screen === "loading" || loadingDeparting} departing={loadingDeparting} symbol={loadingSymbol} marketState={marketState} steps={steps} news={news.items} exchange={loadingExchange} finale={loadingFinale} />
+        <LoadingPage screenRef={screenRefs.loading} active={screen === "loading" || loadingDeparting} departing={loadingDeparting} symbol={loadingSymbol} marketState={marketState} steps={steps} news={news.items} exchange={loadingExchange} finale={loadingFinale} onCancel={scanInProgress && !loadingFinale ? cancelScan : undefined} />
         <SummaryPage
           screenRef={screenRefs.summary}
           active={screen === "summary"}
@@ -689,8 +812,31 @@ export default function App() {
           }}
         />
         <WatchlistPage screenRef={screenRefs.watchlist} active={screen === "watchlist"} watchlist={watchlist} onOpenItem={openWatchItem} onOpenSchedule={() => openSchedule("watchlist")} />
-        <ScreenerPage screenRef={screenRefs.screener} active={screen === "screener"} screener={screener} onOpen={openScreenerEntry} onOpenSchedule={() => openSchedule("screener")} />
-        <NewsPage screenRef={screenRefs.news} active={screen === "news"} news={marketNews} readingStory={readingStory} onOpenStory={openStory} onCloseStory={goBack} onScan={(symbol) => superCalculate(symbol)} scanBusy={scanInProgress} onOpenSchedule={() => openSchedule("news")} onDevNewsflash={showNewsflashNow} />
+        <ScreenerPage
+          screenRef={screenRefs.screener}
+          active={screen === "screener"}
+          screener={screener}
+          onOpen={openScreenerEntry}
+          onOpenSchedule={() => openSchedule("screener")}
+          watched={watchlist.items.map((item) => item.symbol)}
+          watchlistFull={watchlist.items.length >= watchlist.limit}
+          onWatch={
+            watchlist.connected
+              ? (entry) =>
+                  addToWatchlist(
+                    entry.symbol,
+                    entry.ai
+                      ? {
+                          stock: { symbol: entry.symbol, fullName: entry.name, currentPrice: entry.price, lastClose: entry.prevClose, volume: entry.volume, averageVolume: entry.avgVolume, float: entry.float },
+                          legend: entry.ai,
+                          news: entry.news,
+                        }
+                      : undefined,
+                  )
+              : undefined
+          }
+        />
+        <NewsPage screenRef={screenRefs.news} active={screen === "news"} news={marketNews} readingStory={readingStory} onOpenStory={openStory} onCloseStory={goBack} onScan={(symbol) => superCalculate(symbol)} scanBusy={scanInProgress} onOpenSchedule={() => openSchedule("news")} onNewsflash={showNewsflashNow} watched={watchlist.items.map((item) => item.symbol)} />
         <SchedulePage screenRef={screenRefs.schedule} active={screen === "schedule"} dryRun={dryRun} live={liveJobs} onOpenJob={openJob} onUpdateNow={updateJobNow} view={scheduleView} onViewChange={setScheduleView} />
         <TokensPage screenRef={screenRefs.tokens} active={screen === "tokens"} usage={usage} error={usageError} />
         <SettingsPage screenRef={screenRefs.settings} active={screen === "settings"} dryRun={dryRun} onDryRunChange={setDryRun} />
@@ -717,6 +863,8 @@ export default function App() {
           }}
         />
       )}
+
+      <TabTitle jobs={jobs} />
 
       {flash && flashOpen && <Newsflash flash={flash} onClose={closeNewsflash} onRead={readFlashStory} />}
 

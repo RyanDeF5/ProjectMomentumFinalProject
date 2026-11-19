@@ -805,3 +805,80 @@ button.srow__button:disabled {
   font-size: 14px;
   line-height: 1.2;
 }
+
+/* Add to the watchlist straight from a row: the corner under the grade */
+.srow__watch {
+  position: absolute;
+  right: 10px;
+  bottom: 7px;
+  z-index: 3;
+  padding: 3px 8px 2px;
+  border: 0;
+  background: var(--a9-lime);
+  color: var(--a9-dark);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  line-height: 1.2;
+  white-space: nowrap;
+  cursor: inherit;
+}
+.srow__watch:hover:not(:disabled) {
+  background: #d2ff3d;
+}
+.srow__watch:disabled {
+  background: #30343a;
+  color: #8a909a;
+}
+.srow__watch.is-on {
+  background: rgba(5, 10, 26, 0.75);
+  color: var(--a9-lime);
+  box-shadow: inset 0 0 0 1px rgba(195, 251, 18, 0.45);
+}
+.srow__watch.is-failed {
+  background: var(--a9-pink);
+  color: #fff;
+}
+/* The newest-story line keeps clear of it */
+.srow__news {
+  padding-right: 92px;
+}
+@media (max-width: 760px) {
+  .srow__watch {
+    top: 8px;
+    bottom: auto;
+  }
+  .srow__news {
+    padding-right: 0;
+  }
+}
+
+/* TODAY'S NEWSFLASH, by the news page's title */
+.mp__flash {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 10px 1px 4px;
+  border: 0;
+  background: #0d1b33;
+  color: #fff;
+  font: inherit;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: inherit;
+}
+.mp__flash:hover {
+  background: #16294a;
+}
+.mp__flash-mark {
+  display: grid;
+  place-items: center;
+  width: 17px;
+  height: 20px;
+  background: var(--a9-lime);
+  color: var(--a9-dark);
+  font-size: 15px;
+}

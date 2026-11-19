@@ -25,6 +25,42 @@ interface ScreenerPageProps {
   onOpen: (entry: ScreenerEntry) => void;
   /** Open the screener's settings in the Update Schedule */
   onOpenSchedule: () => void;
+  /** Tickers already on the watchlist */
+  watched: string[];
+  watchlistFull: boolean;
+  /** Add a stock to the watchlist straight from its row; absent while the watchlist is offline */
+  onWatch?: (entry: ScreenerEntry) => Promise<unknown>;
+}
+
+/** The row's corner button: add the stock to the watchlist without opening it first. */
+function WatchButton({ entry, watched, full, onWatch }: { entry: ScreenerEntry; watched: boolean; full: boolean; onWatch?: (entry: ScreenerEntry) => Promise<unknown> }) {
+  const [state, setState] = useState<"idle" | "adding" | "failed">("idle");
+  if (watched) {
+    return (
+      <span className="srow__watch is-on" title={`${entry.symbol} is on your watchlist`}>
+        ✓ WATCHING
+      </span>
+    );
+  }
+  const blocked = !onWatch ? "THE WATCHLIST IS OFFLINE" : full ? "YOUR WATCHLIST IS FULL" : null;
+  return (
+    <button
+      type="button"
+      className={`srow__watch${state === "failed" ? " is-failed" : ""}`}
+      disabled={Boolean(blocked) || state === "adding"}
+      title={blocked ?? `Add ${entry.symbol} to your watchlist`}
+      onClick={() => {
+        if (!onWatch) return;
+        sfx.play("launch");
+        setState("adding");
+        onWatch(entry)
+          .then(() => setState("idle"))
+          .catch(() => setState("failed"));
+      }}
+    >
+      {state === "adding" ? "ADDING" : state === "failed" ? "TRY AGAIN" : "+ WATCH"}
+    </button>
+  );
 }
 
 type Tab = "board" | "criteria";
@@ -69,12 +105,18 @@ const BoardRow = memo(function BoardRow({
   grading,
   first,
   onOpen,
+  watched,
+  watchlistFull,
+  onWatch,
 }: {
   entry: ScreenerEntry;
   now: number;
   grading: boolean;
   first: boolean;
   onOpen: (e: ScreenerEntry) => void;
+  watched: boolean;
+  watchlistFull: boolean;
+  onWatch?: (entry: ScreenerEntry) => Promise<unknown>;
 }) {
   const up = entry.change >= 0;
   const s = entry.ai?.screener;
@@ -148,6 +190,7 @@ const BoardRow = memo(function BoardRow({
         </span>
         {top && <Glint idle />}
       </button>
+      <WatchButton entry={entry} watched={watched} full={watchlistFull} onWatch={onWatch} />
     </li>
   );
 });
@@ -193,7 +236,7 @@ function Criteria({ screener }: { screener: Screener }) {
 }
 
 /** The stock screener, laid out like the game's multiplayer rank rewards. */
-export function ScreenerPage({ screenRef, active, screener, onOpen, onOpenSchedule }: ScreenerPageProps) {
+export function ScreenerPage({ screenRef, active, screener, onOpen, onOpenSchedule, watched, watchlistFull, onWatch }: ScreenerPageProps) {
   // "Graded 2m ago" labels don't need a per-second tick
   const now = useNow(5000, active);
   const [tab, setTab] = useState<Tab>("board");
@@ -309,7 +352,17 @@ export function ScreenerPage({ screenRef, active, screener, onOpen, onOpenSchedu
                   </li>
                 )}
                 {ranked.map((entry, i) => (
-                  <BoardRow key={entry.symbol} entry={entry} now={serverNow} grading={grading === entry.symbol} first={i === 0} onOpen={onOpen} />
+                  <BoardRow
+                    key={entry.symbol}
+                    entry={entry}
+                    now={serverNow}
+                    grading={grading === entry.symbol}
+                    first={i === 0}
+                    onOpen={onOpen}
+                    watched={watched.includes(entry.symbol)}
+                    watchlistFull={watchlistFull}
+                    onWatch={onWatch}
+                  />
                 ))}
               </ul>
             </>

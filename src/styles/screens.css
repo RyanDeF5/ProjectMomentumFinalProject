@@ -323,6 +323,15 @@
   font-size: 15px;
   letter-spacing: 0.08em;
 }
+.hud__holiday {
+  margin-top: 8px;
+  padding: 3px 10px 2px;
+  background: #ffc21a;
+  color: var(--a9-dark);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
 .hud__timer-value {
   display: inline-block;
   transform: skewX(-10deg);
@@ -677,6 +686,29 @@
   position: absolute;
   right: 8px;
   bottom: 0;
+}
+/* CANCEL, bottom center, with its key */
+.loading__cancel {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.loading__cancel .a9-btn {
+  min-height: 40px;
+  padding: 0 22px;
+  font-size: 17px;
+}
+.loading__cancel-key {
+  padding: 2px 6px 1px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.4);
+  color: var(--a9-dim);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
 }
 
 /* ---------- Summary screen ---------- */
@@ -2593,58 +2625,87 @@
   }
 }
 
-/* ---------- Background job (screener / watchlist update), in the top bar ---------- */
-/* Tile at the right end of the empty strip; opens that screen */
-.jobtile {
-  flex: none;
-  width: 236px;
+/* ---------- Background jobs (screener, news and watchlist updates), in the top bar ---------- */
+/* One box per job in the strip left of the island, side by side and sharing the room. Each box is
+   its own size container, so it steps down by its own width: full (name, percentage, what Legend
+   is doing, bar), compact (name over percentage, bar), then the percentage and bar alone. */
+.jobs {
+  flex: 1 1 0;
+  min-width: 0;
   height: 100%;
   display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 0 14px 0 12px;
+  gap: 2px;
+  animation: signal-in 0.35s ease-out both;
+}
+.jobbox {
+  --job-c: var(--a9-lime);
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: 236px;
+  height: 100%;
+  padding: 0;
   border: 0;
   background: rgba(255, 255, 255, 0.04);
-  box-shadow: inset 3px 0 0 var(--a9-lime);
+  box-shadow: inset 3px 0 0 var(--job-c);
   color: #fff;
   font: inherit;
   text-align: left;
   cursor: inherit;
-  animation: signal-in 0.35s ease-out both;
+  container: jobbox / inline-size;
 }
-.jobtile:hover:not(:disabled) {
+.jobbox.is-screener {
+  --job-c: var(--a9-lime);
+}
+.jobbox.is-news {
+  --job-c: var(--a9-cyan);
+}
+.jobbox.is-watchlist {
+  --job-c: var(--a9-pink);
+}
+.jobbox.is-held {
+  --job-c: #ffc21a;
+}
+.jobbox:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.09);
 }
-.jobtile.is-held {
-  box-shadow: inset 3px 0 0 #ffc21a;
-}
-.jobtile__icon {
-  flex: none;
-  display: grid;
-  color: #ffc21a;
-}
-.jobtile__text {
-  flex: 1;
-  min-width: 0;
+.jobbox__in {
+  height: 100%;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  justify-content: center;
+  gap: 3px;
+  padding: 0 12px 0 13px;
   line-height: 1.05;
 }
-.jobtile__label {
+.jobbox__head {
   display: flex;
-  gap: 8px;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
   font-size: 14px;
   font-weight: 700;
   letter-spacing: 0.06em;
   white-space: nowrap;
 }
-.jobtile__label strong {
+.jobbox__icon {
+  flex: none;
+  display: grid;
+  color: #ffc21a;
+}
+.jobbox__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.jobbox__short {
+  display: none;
+}
+.jobbox__pct {
   margin-left: auto;
-  color: var(--a9-lime);
+  color: var(--job-c);
   font-variant-numeric: tabular-nums;
 }
-.jobtile__step {
+.jobbox__step {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2654,6 +2715,190 @@
   letter-spacing: 0.06em;
   font-variant-numeric: tabular-nums;
 }
+/* The job's own progress bar: a dark track, the fill in the job's color */
+.jobbox__bar {
+  position: relative;
+  height: 4px;
+  margin-top: 2px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.5);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+.jobbox__fill {
+  position: absolute;
+  inset: 0;
+  background: var(--job-c);
+  transform-origin: left;
+  transition: transform 0.25s linear;
+}
+/* Getting narrow: the diamond steps aside for the name */
+@container jobbox (max-width: 171px) {
+  .jobbox__icon {
+    display: none;
+  }
+}
+/* Compact: the name over the percentage, then the bar */
+@container jobbox (max-width: 131px) {
+  .jobbox__in {
+    gap: 2px;
+    padding: 0 8px 0 10px;
+  }
+  .jobbox__head {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1px;
+    font-size: 11px;
+  }
+  .jobbox__icon,
+  .jobbox__step {
+    display: none;
+  }
+  .jobbox__name,
+  .jobbox__short {
+    max-width: 100%;
+    color: #c9d5e8;
+  }
+  .jobbox__pct {
+    margin-left: 0;
+    font-size: 16px;
+  }
+}
+/* Narrower still: the short name (SCREEN, WATCH) */
+@container jobbox (max-width: 95px) {
+  .jobbox__name {
+    display: none;
+  }
+  .jobbox__short {
+    display: block;
+  }
+}
+/* Tight: the percentage and the bar */
+@container jobbox (max-width: 61px) {
+  .jobbox__in {
+    padding: 0 5px 0 8px;
+  }
+  .jobbox__short {
+    display: none;
+  }
+  .jobbox__pct {
+    font-size: 13px;
+  }
+}
+/* Barely any room (the player is open over it): the bar alone, in the job's color */
+@container jobbox (max-width: 39px) {
+  .jobbox__in {
+    padding: 0 4px 0 7px;
+  }
+  .jobbox__head {
+    display: none;
+  }
+  .jobbox__bar {
+    height: 6px;
+    margin-top: 0;
+  }
+}
+/* Too little room to stand two or three boxes side by side (they'd lose their percentages): they
+   stack as rows instead, each the full width with its percentage over its own bar */
+@container (max-width: 119px) {
+  .jobs.is-2 {
+    flex-direction: column;
+    gap: 1px;
+  }
+  .jobs.is-2 .jobbox {
+    max-width: none;
+    flex: 1 1 0;
+    width: 100%;
+    height: auto;
+    min-height: 0;
+  }
+  .jobs.is-2 .jobbox__in {
+    gap: 2px;
+    padding: 0 6px 0 9px;
+  }
+  .jobs.is-2 .jobbox__head {
+    flex-direction: row;
+    align-items: baseline;
+    gap: 5px;
+    font-size: 10px;
+  }
+  .jobs.is-2 .jobbox__name,
+  .jobs.is-2 .jobbox__icon,
+  .jobs.is-2 .jobbox__step {
+    display: none;
+  }
+  .jobs.is-2 .jobbox__pct {
+    margin-left: auto;
+    font-size: 13px;
+  }
+  .jobs.is-2 .jobbox__bar {
+    height: 3px;
+    margin-top: 0;
+  }
+}
+@container (max-width: 131px) {
+  .jobs.is-3 {
+    flex-direction: column;
+    gap: 1px;
+  }
+  .jobs.is-3 .jobbox {
+    max-width: none;
+    flex: 1 1 0;
+    width: 100%;
+    height: auto;
+    min-height: 0;
+  }
+  .jobs.is-3 .jobbox__in {
+    gap: 1px;
+    padding: 0 6px 0 9px;
+  }
+  .jobs.is-3 .jobbox__head {
+    flex-direction: row;
+    align-items: baseline;
+    gap: 5px;
+    font-size: 9px;
+  }
+  .jobs.is-3 .jobbox__name,
+  .jobs.is-3 .jobbox__icon,
+  .jobs.is-3 .jobbox__step {
+    display: none;
+  }
+  .jobs.is-3 .jobbox__pct {
+    margin-left: auto;
+    font-size: 11px;
+  }
+  .jobs.is-3 .jobbox__bar {
+    height: 2px;
+    margin-top: 0;
+  }
+}
+/* Stacked rows wide enough for it carry the short name beside the percentage */
+@container (min-width: 78px) and (max-width: 119px) {
+  .jobs.is-2 .jobbox__short {
+    display: block;
+  }
+}
+@container (min-width: 78px) and (max-width: 131px) {
+  .jobs.is-3 .jobbox__short {
+    display: block;
+  }
+}
+@container (max-width: 77px) {
+  .jobs.is-2 .jobbox__short,
+  .jobs.is-3 .jobbox__short {
+    display: none;
+  }
+  .jobs.is-2 .jobbox__pct,
+  .jobs.is-3 .jobbox__pct {
+    margin-left: 0;
+  }
+}
+/* No room at all (the player is open over the strip): nothing to draw */
+@container (max-width: 27px) {
+  .jobs {
+    visibility: hidden;
+  }
+}
+
 /* With a job showing, the connection signal keeps to its icon */
 .topbar__space.has-job .signal__text {
   display: none;
@@ -2661,34 +2906,10 @@
 .topbar__space.has-job .signal {
   padding: 0 12px;
 }
-/* Never sized by its text: full (name, percentage and what Legend is doing; up to 236px, filling the
-   room left of the island), percentage only (92px), icon only (48px) */
-.topbar__space .jobtile {
-  width: min(236px, 100cqw);
-}
-@container (max-width: 139px) {
-  .topbar__space .jobtile {
-    width: 92px;
-    padding: 0 10px;
-    gap: 8px;
-  }
-  .jobtile__name,
-  .jobtile__step {
-    display: none;
-  }
-}
-@container (max-width: 91px) {
-  .topbar__space .jobtile {
-    width: 48px;
-    justify-content: center;
-  }
-  .jobtile__text {
-    display: none;
-  }
-}
 
-/* The loading line along the top bar's bottom edge */
+/* Phones only (460px and under, no room for a box beside the island): a thin line along the bar's bottom edge */
 .topbar__line {
+  display: none;
   position: absolute;
   left: 0;
   right: 0;
@@ -2698,158 +2919,243 @@
   pointer-events: none;
   background: rgba(0, 0, 0, 0.35);
 }
+.topbar__line.is-screener {
+  --job-c: var(--a9-lime);
+}
+.topbar__line.is-news {
+  --job-c: var(--a9-cyan);
+}
+.topbar__line.is-watchlist {
+  --job-c: var(--a9-pink);
+}
+.topbar__line.is-held {
+  --job-c: #ffc21a;
+}
 .topbar__line-fill {
   position: absolute;
   inset: 0;
   transform-origin: left;
-  background: var(--a9-lime);
-  box-shadow: 0 0 8px rgba(195, 251, 18, 0.55);
+  background: var(--job-c, var(--a9-lime));
   transition: transform 0.25s linear;
 }
-.topbar__line-edge {
-  position: absolute;
-  top: -1px;
-  bottom: -1px;
-  width: 4px;
-  margin-left: -4px;
-  background: #fff;
-  box-shadow: 0 0 8px 2px rgba(195, 251, 18, 0.8);
-  transition: left 0.25s linear;
-}
-.topbar__line.is-held .topbar__line-fill {
-  background: #ffc21a;
-  box-shadow: none;
-}
-.topbar__line.is-held .topbar__line-edge {
-  display: none;
-}
-
-/* ---------- Several background jobs at once ---------- */
-/* Each job has its own color, on its tile edge, its row and its loading line */
-.jobtile.is-screener,
-.jobrow.is-screener,
-.topbar__line.is-screener {
-  --job-c: var(--a9-lime);
-  --job-glow: rgba(195, 251, 18, 0.55);
-}
-.jobtile.is-news,
-.jobrow.is-news,
-.topbar__line.is-news {
-  --job-c: var(--a9-cyan);
-  --job-glow: rgba(52, 236, 250, 0.55);
-}
-.jobtile.is-watchlist,
-.jobrow.is-watchlist,
-.topbar__line.is-watchlist {
-  --job-c: var(--a9-pink);
-  --job-glow: rgba(255, 0, 84, 0.55);
-}
-.jobtile:not(.is-held) {
-  box-shadow: inset 3px 0 0 var(--job-c, var(--a9-lime));
-}
-.jobtile .jobtile__label strong {
-  color: var(--job-c, var(--a9-lime));
-}
-.topbar__line .topbar__line-fill {
-  background: var(--job-c, var(--a9-lime));
-  box-shadow: 0 0 8px var(--job-glow, rgba(195, 251, 18, 0.55));
-}
-.topbar__line .topbar__line-edge {
-  box-shadow: 0 0 8px 2px var(--job-glow, rgba(195, 251, 18, 0.8));
-}
-/* Stacked lines, one per job, from the bar's bottom edge up */
 .topbar__line.is-stacked {
   height: 2px;
   bottom: calc(-1px + var(--line-i, 0) * 3px);
 }
-
-/* The rows: one per job, filling the tile's height between them */
-.jobstack {
-  flex: none;
-  width: min(320px, 100cqw);
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  padding: 2px 0;
-  animation: signal-in 0.35s ease-out both;
+@media (max-width: 460px) {
+  .topbar__line {
+    display: block;
+  }
+  .jobs {
+    display: none;
+  }
 }
-.jobrow {
-  position: relative;
-  flex: 1;
-  min-height: 0;
+
+/* ---------- Home: company search under the ticker box ---------- */
+.matches {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 20;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  background: #0a1830;
+  box-shadow:
+    inset 0 0 0 1px #2a62ad,
+    0 14px 30px rgba(0, 0, 0, 0.55);
+}
+.matches__row {
+  width: 100%;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: 62px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 8px;
-  padding: 0 10px 0 11px;
+  gap: 10px;
+  padding: 8px 12px 7px;
   border: 0;
-  overflow: hidden;
-  background: rgba(255, 255, 255, 0.04);
-  box-shadow: inset 3px 0 0 var(--job-c);
+  background: transparent;
   color: #fff;
   font: inherit;
   text-align: left;
   cursor: inherit;
 }
-.jobrow:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.09);
+.matches li + li .matches__row {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07);
 }
-.jobrow.is-held {
-  box-shadow: inset 3px 0 0 #ffc21a;
+.matches__row.is-on {
+  background: #fff;
+  color: var(--a9-dark);
 }
-/* The row's own progress, a thin fill along its bottom */
-.jobrow__fill {
-  position: absolute;
-  left: 3px;
-  right: 0;
-  bottom: 0;
-  height: 2px;
-  background: var(--job-c);
-  transform-origin: left;
-  transition: transform 0.25s linear;
+.matches__symbol {
+  font-size: 18px;
+  font-weight: 700;
 }
-.jobrow.is-held .jobrow__fill {
-  background: #ffc21a;
+.matches__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 600;
+  text-transform: uppercase;
 }
-.jobrow__name {
-  font-size: 12px;
+.matches__exchange {
+  color: var(--a9-dim);
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.06em;
-  white-space: nowrap;
 }
-.jobrow__step {
+.matches__row.is-on .matches__exchange {
+  color: var(--a9-slate);
+}
+/* The scan card stands above the cards under it while its list is open */
+.card.scan {
+  position: relative;
+  z-index: 3;
+}
+
+/* ---------- Home: recent scans ---------- */
+.card.recent {
+  padding: 16px 18px;
+}
+.recent__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.recent__note {
+  color: var(--a9-dim);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+.recent__list {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.recent__row {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto 64px;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 8px 5px 5px;
+  border: 0;
+  background: rgba(255, 255, 255, 0.05);
+  color: #fff;
+  font: inherit;
+  text-align: left;
+  cursor: inherit;
+}
+.recent__row:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.12);
+}
+.recent__row:disabled {
+  opacity: 0.5;
+}
+.recent__class {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  background: #fff;
+  color: var(--a9-dark);
+  font-size: 22px;
+  font-weight: 700;
+}
+.recent__id {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.1;
+}
+.recent__symbol {
+  font-size: 17px;
+  font-weight: 700;
+}
+.recent__name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--a9-dim);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.05em;
-  font-variant-numeric: tabular-nums;
-}
-.jobrow__pct {
-  color: var(--job-c);
-  font-size: 13px;
-  font-variant-numeric: tabular-nums;
-}
-/* Clear of the stacked loading lines along the bar's bottom edge (3px each) */
-.jobstack.is-2 {
-  padding-bottom: 5px;
-}
-.jobstack.is-3 {
-  padding-bottom: 8px;
-}
-/* Three at once: tighter rows */
-.jobstack.is-3 .jobrow__name {
   font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
 }
-.jobstack.is-3 .jobrow__pct {
+.recent__numbers {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+.recent__score {
+  font-size: 15px;
+  font-weight: 700;
+}
+.recent__change {
   font-size: 12px;
+  font-weight: 700;
 }
-/* Short of room: name and percentage only */
-@container (max-width: 179px) {
-  .jobrow__step {
-    visibility: hidden;
+.recent__change.is-up {
+  color: var(--a9-lime);
+}
+.recent__change.is-down {
+  color: #ff4f86;
+}
+.recent__ago {
+  justify-self: end;
+  color: var(--a9-dim);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+.recent__ago.is-aging {
+  color: #ffb31a;
+}
+.recent__ago.is-stale,
+.recent__ago.is-old {
+  color: #ff4f86;
+}
+
+/* ---------- Home: update everything ---------- */
+.card.refresh {
+  display: grid;
+  gap: 8px;
+  padding: 14px 18px;
+}
+.refresh__btn {
+  width: 100%;
+}
+.refresh__note {
+  color: var(--a9-dim);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-align: center;
+}
+
+/* Phones: CANCEL sits between LOADING and the diamond, without its key hint */
+@media (max-width: 560px) {
+  .loading__cancel {
+    left: auto;
+    right: 64px;
+    transform: none;
+  }
+  /* Solid, since on phones it lies over the photo squares */
+  .loading__cancel .a9-btn {
+    min-height: 36px;
+    padding: 0 14px;
+    font-size: 15px;
+    background: rgba(5, 7, 13, 0.85);
+  }
+  .loading__cancel-key {
+    display: none;
   }
 }

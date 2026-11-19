@@ -74,86 +74,58 @@ function ConnectionSignal({ connection }: { connection: Connection }) {
   );
 }
 
+// The job's name when its box is narrow
+const SHORT_LABEL: Record<TopJob["source"], string> = { screener: "SCREEN", news: "NEWS", watchlist: "WATCH" };
+
 /**
- * The job running in the background, at the right end of the empty strip: a spinning diamond, the
- * job and its percentage, and what it's doing with the time left. A fixed-size tile (the text
- * truncates inside it) that steps down to the percentage, then the icon, as the bar fills up.
- * Opens that job's screen.
+ * A job running in the background (a screener, news or watchlist update), in the strip left of the
+ * island: its own box in its own color, with its name, percentage, what it's doing and a small
+ * progress bar. Several jobs sit side by side and share the room, each box stepping down as it
+ * narrows (name and percentage over the bar, then the percentage alone). Opens that job's screen.
  */
-function JobTile({ job, onOpen }: { job: TopJob; onOpen?: (source: TopJob["source"]) => void }) {
+function JobBox({ job, onOpen }: { job: TopJob; onOpen?: (source: TopJob["source"]) => void }) {
   const { pct, left, count } = useJobProgress(job);
   const detail = job.held ? "WAITING FOR YOUR SCAN" : [job.step, count, left].filter(Boolean).join(" · ");
+  const percent = job.progress ? `${Math.round(pct * 100)}%` : "--";
   return (
     <button
       type="button"
-      className={`jobtile is-${job.source}${job.held ? " is-held" : ""}`}
-      title={`${job.label}: ${detail}`}
+      className={`jobbox is-${job.source}${job.held ? " is-held" : ""}`}
+      title={`${job.label} ${percent}: ${detail}`}
+      aria-label={`${job.label} update, ${percent} done. ${detail}`}
       disabled={!onOpen}
       onClick={() => {
         sfx.play("click");
         onOpen?.(job.source);
       }}
     >
-      <span className="jobtile__icon" aria-hidden>
-        {job.held ? <TimerIcon size={18} /> : <Diamond size={18} />}
-      </span>
-      <span className="jobtile__text">
-        <span className="jobtile__label">
-          <span className="jobtile__name">{job.label}</span>
-          <strong>{job.progress ? `${Math.round(pct * 100)}%` : "--"}</strong>
+      <span className="jobbox__in">
+        <span className="jobbox__head">
+          <span className="jobbox__icon" aria-hidden>
+            {job.held ? <TimerIcon size={15} /> : <Diamond size={15} />}
+          </span>
+          <span className="jobbox__name">{job.label}</span>
+          <span className="jobbox__short">{SHORT_LABEL[job.source]}</span>
+          <strong className="jobbox__pct">{percent}</strong>
         </span>
-        <span className="jobtile__step">{detail}</span>
+        <span className="jobbox__step">{detail}</span>
+        <span className="jobbox__bar" aria-hidden>
+          <span className="jobbox__fill" style={{ transform: `scaleX(${pct})` }} />
+        </span>
       </span>
     </button>
   );
 }
 
 /**
- * Two or more jobs at once: one row each, stacked in the tile's place, every row in its job's color
- * with its name, what it's doing, its percentage and its own fill. Each opens its job's screen.
- */
-function JobRow({ job, onOpen }: { job: TopJob; onOpen?: (source: TopJob["source"]) => void }) {
-  const { pct, left, count } = useJobProgress(job);
-  const detail = job.held ? "WAITING FOR YOUR SCAN" : [job.step, count, left].filter(Boolean).join(" · ");
-  return (
-    <button
-      type="button"
-      className={`jobrow is-${job.source}${job.held ? " is-held" : ""}`}
-      title={`${job.label}: ${detail}`}
-      disabled={!onOpen}
-      onClick={() => {
-        sfx.play("click");
-        onOpen?.(job.source);
-      }}
-    >
-      <span className="jobrow__fill" style={{ transform: `scaleX(${pct})` }} aria-hidden />
-      <span className="jobrow__name">{job.label}</span>
-      <span className="jobrow__step">{detail}</span>
-      <strong className="jobrow__pct">{job.progress ? `${Math.round(pct * 100)}%` : "--"}</strong>
-    </button>
-  );
-}
-
-function JobStack({ jobs, onOpen }: { jobs: TopJob[]; onOpen?: (source: TopJob["source"]) => void }) {
-  return (
-    <div className={`jobstack is-${jobs.length}`} role="group" aria-label={`${jobs.length} updates running`}>
-      {jobs.map((job) => (
-        <JobRow key={job.source} job={job} onOpen={onOpen} />
-      ))}
-    </div>
-  );
-}
-
-/**
- * The loading line along the bottom edge of the top bar, with a white leading edge, in the job's
- * color. With several jobs running the lines stack, one per job, in the same order as the rows.
+ * Phones only, where there's no room for a job's box beside the island: a thin line along the top
+ * bar's bottom edge in the job's color (stacked, one per job).
  */
 function JobLine({ job, index, count }: { job: TopJob; index: number; count: number }) {
   const { pct } = useJobProgress(job);
   return (
     <span className={`topbar__line is-${job.source}${job.held ? " is-held" : ""}${count > 1 ? " is-stacked" : ""}`} style={{ "--line-i": count - 1 - index } as CSSProperties} aria-hidden>
       <span className="topbar__line-fill" style={{ transform: `scaleX(${pct})` }} />
-      <span className="topbar__line-edge" style={{ left: `${pct * 100}%` }} />
     </span>
   );
 }
@@ -229,12 +201,17 @@ export function TopBar({ barRef, hidden, onBack, onHome, onSettings, usage, onTo
         </button>
       )}
 
-      {/* The free strip: the job tile and connection signal on the left, the soundtrack's island at a
+      {/* The free strip: the job boxes and connection signal on the left, the soundtrack's island at a
           fixed point near the center (see styles/island.css) */}
       <div className="topbar__free">
         <div className={`topbar__space${jobs.length ? " has-job" : ""}`}>
-          {jobs.length === 1 && <JobTile key={jobs[0].source} job={jobs[0]} onOpen={onOpenJob} />}
-          {jobs.length > 1 && <JobStack jobs={jobs} onOpen={onOpenJob} />}
+          {jobs.length > 0 && (
+            <div className={`jobs is-${jobs.length}`} role="group" aria-label={jobs.length === 1 ? "An update is running" : `${jobs.length} updates are running`}>
+              {jobs.map((job) => (
+                <JobBox key={job.source} job={job} onOpen={onOpenJob} />
+              ))}
+            </div>
+          )}
           <ConnectionSignal connection={connection} />
         </div>
         <DynamicIsland />

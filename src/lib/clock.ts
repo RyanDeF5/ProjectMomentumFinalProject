@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import { closedDayReason, dayKind, lastTradingDate, marketStateAt, nextSessionStart, nyParts } from "./marketCalendar";
 import type { MarketState } from "./types";
 
 export interface ClockData {
@@ -10,28 +11,25 @@ export interface ClockData {
   timeOfDay: string;
   marketState: MarketState;
   nextSession: { label: string; remaining: string };
+  /** Why the market is closed all day today (a holiday's name, or THE WEEKEND); null on a trading day */
+  closedFor: string | null;
+  /** Today the market closes early, at 1:00 PM New York time */
+  earlyClose: boolean;
 }
 
-// Market sessions are based on the device's local time, matching the original site.
-function getMarketState(now: Date): MarketState {
-  const day = now.getDay();
-  if (day === 0 || day === 6) return "MARKET CLOSED";
-
-  const militaryTime = now.getHours() * 100 + now.getMinutes();
-  if (militaryTime >= 400 && militaryTime < 930) return "PRE-MARKET";
-  if (militaryTime >= 930 && militaryTime <= 1600) return "MARKET OPEN";
-  if (militaryTime > 1600 && militaryTime <= 2000) return "AFTER HOURS";
-  return "MARKET CLOSED";
-}
+// Market sessions follow New York time and the exchange's calendar (holidays, early closes),
+// whatever this device's time zone is: see marketCalendar.ts.
+const getMarketState = (now: Date): MarketState => marketStateAt(now);
 
 const WEEKDAYS = ["SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY"];
 
-/** The latest trading day as of now: today from 4 AM on a weekday, otherwise the weekday before. */
+/**
+ * The latest trading day as of now: today from 4:00 AM New York on a trading day, otherwise the
+ * trading day before (weekends and holidays skipped). Returned as that date at noon, local time.
+ */
 export function lastTradingDay(now = new Date()): Date {
-  const day = new Date(now);
-  if (day.getHours() < 4) day.setDate(day.getDate() - 1);
-  while (day.getDay() === 0 || day.getDay() === 6) day.setDate(day.getDate() - 1);
-  return day;
+  const { y, m, d } = lastTradingDate(now);
+  return new Date(y, m - 1, d, 12);
 }
 
 /**
@@ -64,14 +62,6 @@ function getDate(now: Date): string {
   return `It is ${dayOfWeek}, ${month} ${dateNum}${suffix}, ${year}`;
 }
 
-// Minutes after midnight when each weekday session begins, matching getMarketState above
-const SESSION_STARTS: { minute: number; state: MarketState }[] = [
-  { minute: 4 * 60, state: "PRE-MARKET" },
-  { minute: 9 * 60 + 30, state: "MARKET OPEN" },
-  { minute: 16 * 60 + 1, state: "AFTER HOURS" },
-  { minute: 20 * 60 + 1, state: "MARKET CLOSED" },
-];
-
 const NEXT_LABEL: Record<MarketState, string> = {
   "PRE-MARKET": "PRE-MARKET IN",
   "MARKET OPEN": "MARKET OPENS IN",
@@ -79,22 +69,18 @@ const NEXT_LABEL: Record<MarketState, string> = {
   "MARKET CLOSED": "AFTER HOURS ENDS IN",
 };
 
-/** Time until the next session change (weekends skipped, holidays not considered). */
+// The next session change is worked out once and kept until it passes (the clock asks every tick)
+let upcoming: { from: number; at: number; state: MarketState } | null = null;
+
+/** Time until the next session change (weekends, holidays and early closes accounted for). */
 export function nextSessionChange(now: Date): { label: string; remaining: string } {
-  const next = new Date(now);
-  next.setSeconds(0, 0);
-  for (let day = 0; day < 8; day++) {
-    const weekday = next.getDay();
-    if (weekday !== 0 && weekday !== 6) {
-      for (const session of SESSION_STARTS) {
-        next.setHours(0, session.minute, 0, 0);
-        if (next > now) return { label: NEXT_LABEL[session.state], remaining: formatDuration(next.getTime() - now.getTime()) };
-      }
-    }
-    next.setDate(next.getDate() + 1);
-    next.setHours(0, 0, 0, 0);
+  const t = now.getTime();
+  if (!upcoming || t >= upcoming.at || t < upcoming.from) {
+    const next = nextSessionStart(now);
+    upcoming = next ? { from: t, ...next } : null;
   }
-  return { label: "", remaining: "" };
+  if (!upcoming) return { label: "", remaining: "" };
+  return { label: NEXT_LABEL[upcoming.state], remaining: formatDuration(upcoming.at - t) };
 }
 
 function formatDuration(ms: number): string {
@@ -103,6 +89,11 @@ function formatDuration(ms: number): string {
   const pad = (n: number) => String(n).padStart(2, "0");
   const clock = `${pad(Math.floor((total % 86400) / 3600))}:${pad(Math.floor((total % 3600) / 60))}:${pad(total % 60)}`;
   return days > 0 ? `${days}D ${clock}` : clock;
+}
+
+function isEarlyClose(now: Date): boolean {
+  const p = nyParts(now);
+  return dayKind(p.y, p.m, p.d) === "early";
 }
 
 export function readClock(now = new Date()): ClockData {
@@ -120,6 +111,8 @@ export function readClock(now = new Date()): ClockData {
     timeOfDay: hours >= 12 ? " Good Evening " : " Good Morning ",
     marketState: getMarketState(now),
     nextSession: nextSessionChange(now),
+    closedFor: closedDayReason(now),
+    earlyClose: isEarlyClose(now),
   };
 }
 

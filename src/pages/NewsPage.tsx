@@ -1,6 +1,6 @@
 import { memo, useEffect, useLayoutEffect, useRef, useState, type Ref } from "react";
 import { sfx } from "../audio/sfx";
-import { DevActionButton, DevResetButton } from "../components/DevResetButton";
+import { DevResetButton } from "../components/DevResetButton";
 import { AgeChip, StaleBanner } from "../components/Freshness";
 import { JobStatusChip } from "../components/JobStatusChip";
 import { Favicon, ImpactCard, StoryReader } from "../components/StoryReader";
@@ -28,16 +28,19 @@ interface NewsPageProps {
   scanBusy: boolean;
   /** Open the news job's settings in the Update Schedule */
   onOpenSchedule: () => void;
-  /** Developer option: show the newsflash now */
-  onDevNewsflash: () => void;
+  /** Show today's newsflash again */
+  onNewsflash: () => void;
+  /** Tickers on the watchlist, for the MY STOCKS tab */
+  watched: string[];
 }
 
-type Tab = "top" | "movers" | "latest";
+type Tab = "top" | "movers" | "latest" | "mine";
 
 const TABS: [Tab, string][] = [
   ["top", "TOP STORIES"],
   ["movers", "STOCK MOVERS"],
   ["latest", "LATEST"],
+  ["mine", "MY STOCKS"],
 ];
 
 const SOURCE_COUNT = 6; // CNBC, MarketWatch, Seeking Alpha, Nasdaq, Google News, Yahoo Finance
@@ -218,7 +221,7 @@ function Briefing({ news, now }: { news: MarketNews; now: number }) {
 }
 
 /** Market news: the day's headlines read by Legend, laid out like the game's event screens. */
-export function NewsPage({ screenRef, active, news, readingStory: open, onOpenStory, onCloseStory, onScan, scanBusy, onOpenSchedule, onDevNewsflash }: NewsPageProps) {
+export function NewsPage({ screenRef, active, news, readingStory: open, onOpenStory, onCloseStory, onScan, scanBusy, onOpenSchedule, onNewsflash, watched }: NewsPageProps) {
   const now = useNow(5000, active);
   const [tab, setTab] = useState<Tab>("top");
   const panelRef = useRef<HTMLDivElement>(null);
@@ -231,6 +234,8 @@ export function NewsPage({ screenRef, active, news, readingStory: open, onOpenSt
   let shown = kept;
   if (tab === "movers") shown = kept.filter((s) => s.tickers.some((t) => t.change !== null)).sort((a, b) => move(b) - move(a));
   else if (tab === "latest") shown = [...kept].sort((a, b) => Date.parse(b.publishedAt) - Date.parse(a.publishedAt));
+  // Stories about the watchlist's stocks: the ones a story is priced with, or the ones Legend named
+  else if (tab === "mine") shown = kept.filter((s) => s.tickers.some((t) => watched.includes(t.symbol)) || s.ai?.tickers.some((t) => watched.includes(t)));
   const high = kept.filter((s) => s.ai?.impact === "high").length;
   const minute = Math.floor(serverNow / 60_000) * 60_000;
 
@@ -319,7 +324,22 @@ export function NewsPage({ screenRef, active, news, readingStory: open, onOpenSt
                 <span className="mp__aplus-value">{high}</span>
               </Reveal>
               <DevResetButton path="/market-news/reset" what="the stories, Legend's reads, the briefing and every story brief" />
-              <DevActionButton label="NEWSFLASH" title="Developer option: show the newsflash now (the last day's big news)" onClick={onDevNewsflash} />
+              <Reveal
+                kind="panel"
+                as="button"
+                type="button"
+                className="mp__flash"
+                title="Show today's newsflash again"
+                onClick={() => {
+                  sfx.play("tap");
+                  onNewsflash();
+                }}
+              >
+                <span className="mp__flash-mark" aria-hidden>
+                  !
+                </span>
+                TODAY'S NEWSFLASH
+              </Reveal>
             </div>
           </div>
 
@@ -396,6 +416,12 @@ export function NewsPage({ screenRef, active, news, readingStory: open, onOpenSt
                           <Diamond size={46} />
                           <span>{engine.step ?? "UPDATING"}; STORIES APPEAR HERE AS LEGEND READS THEM</span>
                         </>
+                      ) : tab === "mine" ? (
+                        <span>
+                          {watched.length
+                            ? `NO STORIES ABOUT YOUR ${watched.length} WATCHLIST STOCK${watched.length === 1 ? "" : "S"} RIGHT NOW.`
+                            : "YOUR WATCHLIST IS EMPTY. ADD STOCKS TO IT AND THEIR NEWS SHOWS UP HERE."}
+                        </span>
                       ) : kept.length ? (
                         <span>NO STORIES IN THE NEWS ARE MOVING STOCKS RIGHT NOW.</span>
                       ) : (

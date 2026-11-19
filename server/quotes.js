@@ -1,22 +1,17 @@
 // Market data from Yahoo Finance: the quote Legend scores, the intraday price line for the
-// watchlist cards, and the market session (in the server's local time, like the site's clock).
+// watchlist cards, and the market session (New York time, see marketCalendar.js).
 
 const YahooFinance = require("yahoo-finance2").default;
 const yahooFinance = new YahooFinance({ suppressNotices: ["yahooSurvey"] });
+const { marketStateAt } = require("./marketCalendar");
 
 const CHART_CACHE_MS = 60_000;
 const SPARK_POINTS = 60;
 const chartCache = new Map();
 
-/** Market session from local time; matches getMarketState in src/lib/clock.ts. */
+/** Market session: New York time and the exchange's calendar (holidays, early closes). */
 function marketState(now = new Date()) {
-  const day = now.getDay();
-  if (day === 0 || day === 6) return "MARKET CLOSED";
-  const time = now.getHours() * 100 + now.getMinutes();
-  if (time >= 400 && time < 930) return "PRE-MARKET";
-  if (time >= 930 && time <= 1600) return "MARKET OPEN";
-  if (time > 1600 && time <= 2000) return "AFTER HOURS";
-  return "MARKET CLOSED";
+  return marketStateAt(now);
 }
 
 function domainOf(website) {
@@ -89,4 +84,28 @@ async function getSparkline(symbol) {
   return value;
 }
 
-module.exports = { getQuote, getSparkline, marketState };
+// ---------- Ticker search ----------
+// Typing a company's name in the scan box: Yahoo's symbol search, US stocks and ETFs only.
+const SEARCH_CACHE_MS = 10 * 60_000;
+const SEARCH_TYPES = new Set(["EQUITY", "ETF"]);
+const US_EXCHANGES = new Set(["NMS", "NYQ", "NGM", "NCM", "ASE", "PCX", "BTS", "PNK", "OQB", "OQX"]);
+const searchCache = new Map();
+
+/** Up to six stocks matching a name or the start of a ticker: [{ symbol, name, exchange, type }]. */
+async function searchSymbols(query) {
+  const q = String(query || "").trim().slice(0, 40);
+  if (!q) return [];
+  const key = q.toUpperCase();
+  const hit = searchCache.get(key);
+  if (hit && Date.now() - hit.at < SEARCH_CACHE_MS) return hit.results;
+  const found = await yahooFinance.search(q, { quotesCount: 12, newsCount: 0, enableFuzzyQuery: false }, { validateResult: false });
+  const results = (found.quotes || [])
+    .filter((x) => x.symbol && SEARCH_TYPES.has(x.quoteType) && US_EXCHANGES.has(x.exchange) && /^[A-Z][A-Z.\-]{0,5}$/.test(x.symbol))
+    .slice(0, 6)
+    .map((x) => ({ symbol: x.symbol, name: x.longname || x.shortname || x.symbol, exchange: x.exchDisp || x.exchange, type: x.quoteType }));
+  if (searchCache.size > 300) searchCache.clear();
+  searchCache.set(key, { at: Date.now(), results });
+  return results;
+}
+
+module.exports = { getQuote, getSparkline, marketState, searchSymbols };

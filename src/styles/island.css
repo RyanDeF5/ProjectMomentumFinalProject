@@ -4,8 +4,10 @@
    The island is anchored at a fixed point in it: the window's center when the tiles leave room,
    otherwise as close to it as the tiles allow. That point depends only on the window's width, so the
    island never moves: not when it's tapped, not when a job tile or the connection signal appears.
-   It opens, peeks and closes around that point. The job tile and signal sit on its left, in the
-   room between the back corner and the island (.topbar__space). */
+   It opens, peeks and closes around that point. The job boxes and signal sit on its left, in the
+   room between the back corner and the island (.topbar__space). That room follows the island's
+   width: when the island widens to show a song's name (or opens), the room shrinks by the same
+   amount and the job boxes step down, so the island never covers them. */
 
 :root {
   --island-w: 196px;
@@ -16,7 +18,7 @@
   --island-tint: #ff2d6f;
   /* The back corner's width: kept clear on every screen, so the island sits in the same place everywhere */
   --back-w: 104px;
-  /* Room always kept for the job tile left of the island (at least its icon) */
+  /* Room always kept for the job boxes left of the island (at least a percentage and its bar) */
   --job-min: 60px;
 }
 
@@ -24,23 +26,45 @@
 .topbar__free {
   position: relative;
   flex: 1 1 0;
-  min-width: calc(var(--back-w) + var(--island-w) + 24px);
+  min-width: calc(var(--back-w) + var(--job-min) + var(--island-w) + 24px);
   container-type: inline-size;
   background: linear-gradient(180deg, #16294a, #11213b);
   /* The island's center: the window's, or as far right as leaves the song-name peek clear of the
      tiles, or (in the tightest windows) as far left as clears the back corner */
   --island-x: max(calc(var(--back-w) + var(--job-min) + 12px + var(--island-w) / 2), min(50vw, calc(100cqw - 12px - var(--island-peek-w) / 2)));
+  /* Room the peek leaves on its left: the back corner, plus a job's compact box while one is running */
+  --peek-keep: var(--back-w);
+  /* The peek's width: never wider than the room to the tiles on the right or what's kept on the left */
+  --island-peek-now: max(var(--island-w), min(var(--island-peek-w), calc((100cqw - 12px - var(--island-x)) * 2), calc((var(--island-x) - var(--peek-keep)) * 2)));
+  /* How wide the island is right now, and how far the open player is shifted, for the room left of it */
+  --island-now-w: var(--island-w);
+  --island-shift: 0px;
 }
-/* Job tile and connection signal: left of the island */
+.topbar__free:has(.jobbox) {
+  --peek-keep: calc(var(--back-w) + var(--job-min) + 12px);
+}
+.topbar__free:has(.island.is-peek) {
+  --island-now-w: var(--island-peek-now);
+}
+.topbar__free:has(.island.is-expanded) {
+  --island-now-w: var(--island-open-w);
+  /* The open player keeps clear of the tiles on its right when the strip has the room; in a strip
+     too narrow for that it stays inside the window instead (a fixed offset, never animated) */
+  --island-shift: clamp(calc(8px + var(--island-open-w) / 2 - var(--island-x)), 0px, calc(100cqw - 8px - var(--island-open-w) / 2 - var(--island-x)));
+  /* Above the tiles and the back corner: where it can't keep clear, it covers them rather than being cut off */
+  z-index: 90;
+}
+/* Job boxes and connection signal: left of the island, in the room its current width leaves */
 .topbar .topbar__space {
   position: absolute;
   top: 0;
   bottom: 0;
   left: var(--back-w);
-  width: max(0px, calc(var(--island-x) - var(--island-w) / 2 - 12px - var(--back-w)));
+  width: max(0px, calc(var(--island-x) + var(--island-shift) - var(--island-now-w) / 2 - 12px - var(--back-w)));
   padding: 0;
   justify-content: flex-start;
   background: none;
+  transition: width 0.35s ease;
 }
 /* The anchor: a zero-width point the island is centered on, so it grows evenly to both sides */
 .topbar__island {
@@ -88,18 +112,12 @@
   outline-offset: 2px;
 }
 .island.is-peek {
-  /* Never wider than the room to the tiles on either side */
-  width: max(var(--island-w), min(var(--island-peek-w), calc((100cqw - 12px - var(--island-x)) * 2), calc((var(--island-x) - var(--back-w)) * 2)));
+  width: var(--island-peek-now);
 }
 .island.is-expanded {
   width: var(--island-open-w);
   height: 212px;
-  /* Kept inside the window on narrow screens (a fixed offset for the window's width, never animated) */
-  left: clamp(
-    calc(8px + var(--island-open-w) / 2 - var(--island-x)),
-    0px,
-    calc(100vw - 8px - var(--island-open-w) / 2 - var(--island-x))
-  );
+  left: var(--island-shift);
   border-radius: 40px;
   box-shadow:
     0 0 0 1px rgba(255, 255, 255, 0.08),
@@ -503,9 +521,19 @@
   color: rgba(255, 255, 255, 0.7);
 }
 
-/* ---------- Tiles: room for the island and a full job tile on laptop screens ---------- */
-/* The tiles keep their fixed widths; below 1600px the date steps aside (it's on the home screen) and
-   the session status narrows, which frees the strip for the job tile to show what Legend is doing */
+/* ---------- The bar by window width ----------
+   The strip needs the back corner, room for a job's box, the island and a gap on each side of it.
+   Whatever the tiles leave must cover that, so as the window narrows the tiles shrink or step aside
+   in a set order and the island steps down in size. The tile widths below are what make each
+   range add up; nothing is sized by its content.
+
+   over 1600   every tile
+   1301-1600   no date (it's on the home screen); the session status narrows
+   1011-1300   no clock (the home screen has the big one)
+    841-1010   compact token counter and session status; a smaller island
+    681-840    no session status (the home screen's countdown shows it)
+    561-680    no watchlist count
+   to 560      phones: a short token counter, a narrower corner, the smallest island */
 @media (max-width: 1600px) {
   .topbar__date {
     display: none;
@@ -515,10 +543,13 @@
     font-size: 21px;
   }
 }
-/* Below 1300px the clock steps aside too (the home screen has the big one) */
 @media (max-width: 1300px) {
   .topbar__counter {
     display: none;
+  }
+  :root {
+    --island-w: 168px;
+    --island-peek-w: 280px;
   }
 }
 @media (max-width: 1200px) {
@@ -527,18 +558,23 @@
     font-size: 20px;
   }
 }
-
-/* ---------- Sizes: the pill steps down with the window, like the island on smaller phones ---------- */
-@media (max-width: 1300px) {
-  :root {
-    --island-w: 168px;
-    --island-peek-w: 280px;
+@media (max-width: 1010px) {
+  .topbar__status {
+    width: 150px;
+    padding: 0 8px;
+    font-size: 16px;
   }
-}
-@media (max-width: 900px) {
-  /* Small windows: no room for the job tile beside the island (the loading line shows progress) */
+  .topbar__tokens {
+    width: 150px;
+  }
+  .topbar__tokens button {
+    gap: 6px;
+    padding: 0 10px;
+    font-size: 18px;
+  }
+  /* Room for a job's percentage and bar beside the island */
   .topbar__free {
-    --job-min: 0px;
+    --job-min: 52px;
   }
   :root {
     --island-w: 140px;
@@ -550,22 +586,48 @@
     padding-right: 11px;
   }
 }
+@media (max-width: 840px) {
+  .topbar__status {
+    display: none;
+  }
+}
+@media (max-width: 680px) {
+  .topbar__garage {
+    display: none;
+  }
+}
 @media (max-width: 560px) {
   :root {
     --island-w: 116px;
     --island-h: 34px;
     --island-peek-w: 200px;
   }
-  /* Phones: no room for the job tile (the loading line along the bar's bottom shows progress) */
+  /* Phones: little or no room for a job's box (under 460px the thin line along the bar's bottom
+     shows progress instead). The
+     island sits closer to the corner: the back triangle has narrowed well before it reaches the
+     pill's height */
   .topbar__free {
-    --back-w: 84px;
+    --back-w: 60px;
     --job-min: 0px;
+  }
+  /* The counter alone: the daily limit and the "+" are on the tokens screen */
+  .topbar__tokens {
+    width: 112px;
+  }
+  .topbar__tokens-limit,
+  .topbar__plus {
+    display: none;
   }
   .island__peek-title {
     font-size: 13px;
   }
   .island__peek-artist {
     display: none;
+  }
+}
+@media (max-width: 380px) {
+  :root {
+    --island-w: 100px;
   }
 }
 /* Phones: tighter controls */

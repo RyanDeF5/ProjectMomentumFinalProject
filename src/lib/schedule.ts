@@ -1,4 +1,5 @@
 import { isAppActive } from "./activity";
+import { sessionKeyAt } from "./marketCalendar";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { HoursWindow, JobKey, JobSchedule, ScheduleSnapshot, SchedulePatch, SessionKey } from "./types";
 
@@ -15,7 +16,7 @@ export const SESSIONS: { key: SessionKey; label: string; short: string; range: s
   { key: "open", label: "MARKET OPEN", short: "OPEN", range: "9:30 AM - 4:00 PM", from: 570, to: 961 },
   { key: "afterhours", label: "AFTER HOURS", short: "AFTER", range: "4:00 - 8:00 PM", from: 961, to: 1201 },
   { key: "overnight", label: "OVERNIGHT", short: "NIGHT", range: "8:00 PM - 4:00 AM", from: 1201, to: 240 },
-  { key: "weekend", label: "WEEKENDS", short: "WKND", range: "SAT & SUN, ALL DAY", from: 0, to: 1440 },
+  { key: "weekend", label: "WEEKENDS & HOLIDAYS", short: "WKND", range: "MARKET CLOSED ALL DAY", from: 0, to: 1440 },
 ];
 
 /** The weekday session a minute of the day falls in (server/schedule.js sessionAt). */
@@ -26,9 +27,9 @@ export function weekdaySession(minute: number): SessionKey {
   return "overnight";
 }
 
+/** The session at a moment: New York time, with holidays counted like weekends and early closes honored. */
 export function sessionAt(date: Date): SessionKey {
-  const day = date.getDay();
-  return day === 0 || day === 6 ? "weekend" : weekdaySession(date.getHours() * 60 + date.getMinutes());
+  return sessionKeyAt(date);
 }
 
 export function inWindow(minute: number, hours: HoursWindow | null): boolean {

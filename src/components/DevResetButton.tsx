@@ -43,23 +43,3 @@ export function DevResetButton({ path, what }: { path: "/watchlist/reset" | "/sc
     </button>
   );
 }
-
-/** Developer option (only while DEV OPTIONS is on): a one-click action, e.g. show today's newsflash again. */
-export function DevActionButton({ label, title, onClick }: { label: string; title: string; onClick: () => void }) {
-  const { devOptions } = useSettings();
-  if (!devOptions) return null;
-  return (
-    <button
-      type="button"
-      className="devreset"
-      title={title}
-      onClick={() => {
-        sfx.play("tap");
-        onClick();
-      }}
-    >
-      <span className="devreset__tag">DEV</span>
-      <span>{label}</span>
-    </button>
-  );
-}

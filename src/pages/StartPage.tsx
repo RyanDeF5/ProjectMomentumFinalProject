@@ -1,4 +1,4 @@
-import { useRef, useState, type Ref } from "react";
+import { useEffect, useRef, useState, type Ref } from "react";
 import { shake } from "../animation/a9";
 import { sfx } from "../audio/sfx";
 import { Field } from "../components/Field";
@@ -6,11 +6,14 @@ import type { LegendState } from "../components/LegendPanel";
 import { LastScanCard } from "../components/LastScanCard";
 import { WatchRail } from "../components/WatchRail";
 import { NumberField } from "../components/NumberField";
+import { searchSymbols, type SymbolMatch } from "../lib/api";
 import { useClock, useMarketState } from "../lib/clock";
-import { getRandomInt, parseNumber } from "../lib/numbers";
+import { freshness, stampLabel } from "../lib/freshness";
+import { getRandomInt, parseNumber, scoreToClass } from "../lib/numbers";
+import type { RecentScan } from "../lib/recentScans";
 import { useSettings } from "../lib/settings";
 import type { StockData, WatchItem } from "../lib/types";
-import type { Watchlist } from "../lib/watchlist";
+import { agoLabel, useNow, type Watchlist } from "../lib/watchlist";
 import { Button } from "../ui/Button";
 import { Chip } from "../ui/Chip";
 import { Glint } from "../ui/Glint";
@@ -29,6 +32,13 @@ interface StartPageProps {
   onManualSubmit: (stock: StockData) => void;
   onSwitchPage: () => void;
   onDryRunChange: (dryRun: boolean) => void;
+  /** The last few scans kept on this device, newest first */
+  recentScans: RecentScan[];
+  onOpenRecentScan: (scan: RecentScan) => void;
+  /** Update the watchlist, the screener and the news now; absent while the server is unreachable */
+  onUpdateEverything?: () => void;
+  /** How many of those updates are running */
+  updatesRunning: number;
   /** The most recent scan, shown as a card in the top-left corner */
   lastScan: { stock: StockData; legend: LegendState } | null;
   onOpenLastScan: () => void;
@@ -88,6 +98,9 @@ function HeroClock() {
             <span className="hud__timer-value">{clock.nextSession.remaining}</span>
           </Reveal>
         )}
+        {/* A market holiday, or a day the market closes early */}
+        {clock.closedFor && clock.closedFor !== "THE WEEKEND" && <span className="hud__holiday">MARKET CLOSED TODAY FOR {clock.closedFor}</span>}
+        {clock.earlyClose && <span className="hud__holiday">EARLY CLOSE TODAY · 1:00 PM ET</span>}
       </div>
     </div>
   );
@@ -104,6 +117,10 @@ export function StartPage({
   onDryRunChange,
   lastScan,
   onOpenLastScan,
+  recentScans,
+  onOpenRecentScan,
+  onUpdateEverything,
+  updatesRunning,
   watchlist,
   onOpenWatchItem,
   onOpenWatchlist,
@@ -115,6 +132,41 @@ export function StartPage({
   const [symbolError, setSymbolError] = useState("");
   const [devOpen, setDevOpen] = useState(readDevOpen);
   const superSymbolRef = useRef<HTMLInputElement>(null);
+  const now = useNow(30_000, active);
+  // Company-name search under the ticker box: matches for what's typed, picked with the mouse or the arrow keys
+  const [matches, setMatches] = useState<SymbolMatch[]>([]);
+  const [matchesOpen, setMatchesOpen] = useState(false);
+  const [highlight, setHighlight] = useState(-1);
+  useEffect(() => {
+    const q = superSymbol.trim();
+    if (q.length < 2 || !matchesOpen) {
+      setMatches([]);
+      return;
+    }
+    const abort = new AbortController();
+    const timer = window.setTimeout(() => {
+      searchSymbols(q, abort.signal)
+        .then((found) => {
+          // The exact ticker alone needs no list
+          setMatches(found.length === 1 && found[0].symbol === q.toUpperCase() ? [] : found);
+          setHighlight(-1);
+        })
+        .catch(() => {});
+    }, 180);
+    return () => {
+      window.clearTimeout(timer);
+      abort.abort();
+    };
+  }, [superSymbol, matchesOpen]);
+
+  function pickMatch(match: SymbolMatch) {
+    sfx.play("tap");
+    setSuperSymbol(match.symbol);
+    setSymbolError("");
+    setMatches([]);
+    setMatchesOpen(false);
+    superSymbolRef.current?.focus();
+  }
   const manualSymbolRef = useRef<HTMLInputElement>(null);
 
   const setField = (key: keyof typeof emptyManualFields) => (value: string) => setFields((prev) => ({ ...prev, [key]: value }));
@@ -241,11 +293,45 @@ export function StartPage({
                     autoComplete="off"
                     spellCheck={false}
                     value={superSymbol}
+                    role="combobox"
+                    aria-expanded={matches.length > 0}
+                    aria-controls="symbol-matches"
+                    aria-autocomplete="list"
                     onChange={(e) => {
                       setSuperSymbol(e.target.value);
                       setSymbolError("");
+                      setMatchesOpen(true);
+                    }}
+                    onFocus={() => setMatchesOpen(true)}
+                    // Late enough for a click on a match to land first
+                    onBlur={() => window.setTimeout(() => setMatchesOpen(false), 150)}
+                    onKeyDown={(e) => {
+                      if (!matches.length) return;
+                      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                        e.preventDefault();
+                        setHighlight((i) => (e.key === "ArrowDown" ? (i + 1) % matches.length : i <= 0 ? matches.length - 1 : i - 1));
+                      } else if (e.key === "Enter" && highlight >= 0) {
+                        e.preventDefault();
+                        pickMatch(matches[highlight]);
+                      } else if (e.key === "Escape") {
+                        setMatches([]);
+                        setMatchesOpen(false);
+                      }
                     }}
                   />
+                  {matches.length > 0 && (
+                    <ul className="matches" id="symbol-matches" role="listbox" aria-label="Matching stocks">
+                      {matches.map((m, i) => (
+                        <li key={m.symbol} role="option" aria-selected={i === highlight}>
+                          <button type="button" className={`matches__row${i === highlight ? " is-on" : ""}`} tabIndex={-1} onMouseDown={(e) => e.preventDefault()} onMouseEnter={() => setHighlight(i)} onClick={() => pickMatch(m)}>
+                            <span className="matches__symbol">{m.symbol}</span>
+                            <span className="matches__name">{m.name}</span>
+                            <span className="matches__exchange">{m.type === "ETF" ? "ETF" : m.exchange.toUpperCase()}</span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </span>
               </Field>
               <Field
@@ -266,6 +352,57 @@ export function StartPage({
                 {marketState !== "MARKET CLOSED" && <Glint idle />}
               </Button>
             </form>
+          </Reveal>
+
+          {recentScans.length > 0 && (
+            <Reveal kind="panel" className="card recent">
+              <div className="recent__head">
+                <SectionTitle as="h3" size="sm">
+                  RECENT SCANS
+                </SectionTitle>
+                <span className="recent__note">TAP ONE TO REOPEN IT</span>
+              </div>
+              <ul className="recent__list">
+                {recentScans.map((scan) => {
+                  const change = ((scan.stock.currentPrice - scan.stock.lastClose) / scan.stock.lastClose) * 100;
+                  const age = freshness(scan.at, now, "stock");
+                  return (
+                    <li key={scan.stock.symbol}>
+                      <button
+                        type="button"
+                        className="recent__row"
+                        disabled={!buyButtonsEnabled}
+                        title={`Scanned ${stampLabel(scan.at, now)}`}
+                        onClick={() => {
+                          sfx.play("click");
+                          onOpenRecentScan(scan);
+                        }}
+                      >
+                        <span className="recent__class">{scoreToClass(scan.legend.score)}</span>
+                        <span className="recent__id">
+                          <span className="recent__symbol">{scan.stock.symbol}</span>
+                          <span className="recent__name">{scan.stock.fullName}</span>
+                        </span>
+                        <span className="recent__numbers">
+                          <span className="recent__score">{Math.round(Number(scan.legend.score)).toLocaleString("en-US")}</span>
+                          {Number.isFinite(change) && <span className={`recent__change${change >= 0 ? " is-up" : " is-down"}`}>{change >= 0 ? "▲" : "▼"} {Math.abs(change).toFixed(1)}%</span>}
+                        </span>
+                        <span className={`recent__ago is-${age}`}>{agoLabel(scan.at, now)}</span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </Reveal>
+          )}
+
+          <Reveal kind="panel" className="card refresh">
+            <Button variant="normal" className="refresh__btn" sound="launch" disabled={!onUpdateEverything || updatesRunning >= 3} onClick={onUpdateEverything}>
+              {updatesRunning >= 3 ? "UPDATING EVERYTHING" : "UPDATE EVERYTHING"}
+            </Button>
+            <span className="refresh__note">
+              {updatesRunning > 0 ? `${updatesRunning} OF 3 UPDATES RUNNING · PROGRESS IS IN THE TOP BAR` : "THE WATCHLIST, THE SCREENER AND THE NEWS, ALL AT ONCE"}
+            </span>
           </Reveal>
 
           {settings.devOptions && (

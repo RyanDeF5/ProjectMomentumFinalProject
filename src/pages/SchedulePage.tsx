@@ -16,6 +16,7 @@ import {
   useSchedule,
 } from "../lib/schedule";
 import { whenLabel } from "../lib/freshness";
+import { closedDayReason } from "../lib/marketCalendar";
 import type { HoursWindow, JobKey, JobSchedule, NewsEdition, ScheduleSnapshot, SchedulePatch, SessionKey } from "../lib/types";
 import { agoLabel, useNow } from "../lib/watchlist";
 import { Button } from "../ui/Button";
@@ -341,7 +342,8 @@ function JobPanel({
   const change = (patch: NonNullable<SchedulePatch["jobs"]>[JobKey]) => apply({ jobs: { [key]: patch } });
   const intervals = info.intervals.filter((s) => s > 0);
   const nowDate = new Date(now);
-  const weekendToday = nowDate.getDay() === 0 || nowDate.getDay() === 6;
+  // A market holiday runs on the weekend schedule
+  const weekendToday = closedDayReason(nowDate) !== null;
   const [day, setDay] = useState<"weekday" | "weekend">(weekendToday ? "weekend" : "weekday");
   const custom = Boolean(sched.hours);
   const hours: HoursWindow = sched.hours ?? { from: 570, to: 960 };
@@ -473,7 +475,8 @@ function JobPanel({
 
 function Overview({ snap, live, now, dryRun, apply }: { snap: ScheduleSnapshot; live: Record<JobKey, LiveJob>; now: number; dryRun: boolean; apply: (patch: SchedulePatch) => void }) {
   const nowDate = new Date(now);
-  const weekendToday = nowDate.getDay() === 0 || nowDate.getDay() === 6;
+  // A market holiday runs on the weekend schedule
+  const weekendToday = closedDayReason(nowDate) !== null;
   const [day, setDay] = useState<"weekday" | "weekend">(weekendToday ? "weekend" : "weekday");
   const preset = matchingPreset(snap);
   const costs = JOBS.map((j) => jobCost(snap, j.key, dryRun));

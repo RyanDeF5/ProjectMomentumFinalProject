@@ -5,7 +5,7 @@ const fs = require("fs");
 const path = require("path");
 
 // Market data, Legend AI (LM Studio) with its news retrieval, and the watchlist
-const { getQuote } = require("./quotes");
+const { getQuote, searchSymbols } = require("./quotes");
 const legend = require("./legend");
 const { getNews } = require("./news");
 const watchlist = require("./watchlist");
@@ -69,6 +69,16 @@ app.post("/analyze", async (req, res) => {
 });
 
 // Recent news about a stock, ranked for relevance and recency (also what Legend reads)
+// Ticker search for the scan box: company names and tickers (never fails the page: an empty list instead)
+app.get("/search", async (req, res) => {
+  try {
+    res.json({ results: await searchSymbols(req.query.q) });
+  } catch (err) {
+    console.error("Ticker search failed:", err.message);
+    res.json({ results: [] });
+  }
+});
+
 app.get("/news", async (req, res) => {
   const symbol = String(req.query.symbol || "").trim();
   if (!symbol) return res.status(400).json({ error: "Symbol required" });

@@ -39,7 +39,7 @@ const USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) Alpha9Legends/1
 // The daily edition: the news is updated and the newsflash written with no page open, so it's ready
 // the moment the app is first opened that day (see "Daily edition" below)
 const EDITION_TIMES = [240, 300, 360, 420, 480, 540]; // minutes after midnight it may start: 4:00 to 9:00 AM
-const DEFAULT_EDITION = { enabled: true, minute: 360 };
+const DEFAULT_EDITION = { enabled: true, minute: 480 };
 const DEFAULT_TOKENS_PER_STORY = 450;
 const DEFAULT_TOKENS_PER_BRIEFING = 1800;
 const PHASES = [
@@ -1014,7 +1014,7 @@ async function newsflash(sinceRaw) {
 
 // ---------- Daily edition ----------
 // The newsflash should be waiting when the app is first opened each day, not start being made then.
-// So from the edition's time each morning (6:00 AM unless changed), with no page open, the server
+// So from the edition's time each morning (8:00 AM unless changed), with no page open, the server
 // updates the news and writes the newsflash, then keeps it current with another update every two
 // hours until the app is opened or the evening session ends. A computer that was asleep at that time
 // catches up as soon as it wakes. It runs even while the news job's own auto update is off; the

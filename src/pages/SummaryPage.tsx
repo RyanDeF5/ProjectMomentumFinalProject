@@ -160,6 +160,11 @@ export function SummaryPage({ screenRef, active, stock, summaryRun, legend, news
               </Chip>
               <span className="summary__disclaimer">NOT FINANCIAL ADVICE</span>
             </span>
+            {stock.fullName !== "Not Identified" && (
+              <Button variant="ghost" sound="launch" disabled={!onRescan} onClick={onRescan} title="Scan this stock again for live numbers">
+                SCAN AGAIN
+              </Button>
+            )}
             <Button variant="normal" onClick={onBack}>
               BACK
             </Button>

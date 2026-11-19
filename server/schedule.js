@@ -9,10 +9,11 @@
 const fs = require("fs");
 const path = require("path");
 const usage = require("./usage");
+const { sessionKeyAt } = require("./marketCalendar");
 
 const FILE = process.env.SCHEDULE_FILE || path.join(__dirname, "data", "schedule.json");
 const JOBS = ["watchlist", "screener", "news"];
-// Weekday sessions match marketState() in quotes.js; weekends are their own
+// Weekday sessions match marketState() in quotes.js; weekends (and market holidays) are their own
 const SESSIONS = ["premarket", "open", "afterhours", "overnight", "weekend"];
 const TOKEN_LIMITS = [0, 100_000, 250_000, 500_000, 1_000_000, 2_000_000, 5_000_000]; // 0: no limit
 const CHECK_MS = 60_000; // a blocked job looks again at least this often (limits and settings change)
@@ -56,15 +57,12 @@ function save() {
 
 // ---------- Time ----------
 
-/** The session a moment falls in (minutes: 4:00 to 9:30 pre-market, to 16:00 open, to 20:00 after hours). */
+/**
+ * The session a moment falls in: New York time and the exchange's calendar. A holiday counts as a
+ * weekend day, and on an early close the open ends at 1:00 PM and after hours at 5:00.
+ */
 function sessionAt(date) {
-  const day = date.getDay();
-  if (day === 0 || day === 6) return "weekend";
-  const m = date.getHours() * 60 + date.getMinutes();
-  if (m >= 240 && m < 570) return "premarket";
-  if (m >= 570 && m <= 960) return "open";
-  if (m > 960 && m <= 1200) return "afterhours";
-  return "overnight";
+  return sessionKeyAt(date);
 }
 
 /** Whether a minute of the day (0-1439) is inside a window of hours; windows may run past midnight. */

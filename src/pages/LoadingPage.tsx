@@ -2,6 +2,7 @@ import { useEffect, useState, type CSSProperties, type ReactNode, type Ref } fro
 import { exchangePhoto } from "../lib/exchanges";
 import { SourceCarousel, type Source } from "../components/SourceCarousel";
 import type { MarketState, NewsItem } from "../lib/types";
+import { Button } from "../ui/Button";
 import { Chip } from "../ui/Chip";
 import { Diamond } from "../ui/Diamond";
 import { Reveal } from "../ui/Reveal";
@@ -26,6 +27,8 @@ interface LoadingPageProps {
   exchange: { code: string | null; name: string | null } | null;
   /** The scan is done: the words fade and the exchange photo spreads across the whole grid */
   finale: boolean;
+  /** Abandon the scan and go back; absent once it can no longer be stopped */
+  onCancel?: () => void;
 }
 
 // Full-screen grid of big squares, like the game's pre-race screen: 8 across (4 on phones)
@@ -104,7 +107,16 @@ const MOSAIC = [
 ] as const;
 
 /** Shown while a scan runs (quote, news, Legend), like the loading screen before a race. */
-export function LoadingPage({ screenRef, active, departing = false, symbol, marketState, steps, news, exchange, finale }: LoadingPageProps) {
+export function LoadingPage({ screenRef, active, departing = false, symbol, marketState, steps, news, exchange, finale, onCancel }: LoadingPageProps) {
+  // Escape cancels the scan, like the CANCEL button
+  useEffect(() => {
+    if (!active || !onCancel) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onCancel();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [active, onCancel]);
   // The exchange's building, shown once its photo has loaded so the reveal never stalls
   const photo = exchange ? exchangePhoto(exchange.code, exchange.name) : null;
   const [loaded, setLoaded] = useState<string | null>(null);
@@ -239,6 +251,15 @@ export function LoadingPage({ screenRef, active, departing = false, symbol, mark
             )}
           </Reveal>
         </div>
+
+        {onCancel && (
+          <Reveal kind="fade" className="loading__cancel">
+            <Button variant="ghost" sound="click" onClick={onCancel}>
+              CANCEL
+            </Button>
+            <span className="loading__cancel-key">ESC</span>
+          </Reveal>
+        )}
 
         <Reveal kind="fade" className="loading__indicator">
           <span>LOADING</span>

@@ -69,3 +69,19 @@ export async function fetchTokenUsage(): Promise<TokenUsage> {
 export function faviconUrl(domain: string): string {
   return `${API_URL}/favicon?domain=${encodeURIComponent(domain)}`;
 }
+
+/** A stock found by the scan box's search */
+export interface SymbolMatch {
+  symbol: string;
+  name: string;
+  exchange: string;
+  type: string;
+}
+
+/** Stocks matching a company's name or the start of a ticker (an empty list when the search is down). */
+export async function searchSymbols(query: string, signal?: AbortSignal): Promise<SymbolMatch[]> {
+  const res = await fetch(`${API_URL}/search?q=${encodeURIComponent(query)}`, { signal });
+  if (!res.ok) return [];
+  const body = (await res.json()) as { results?: SymbolMatch[] };
+  return body.results ?? [];
+}
